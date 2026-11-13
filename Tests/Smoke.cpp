@@ -8,11 +8,13 @@ static juce::AudioProcessorParameter* parameterOf(juce::AudioProcessor& p,const 
 #include "AuditRegression.h"
 #include "OscillatorArchitecture.h"
 #include "CinemaBank.h"
+#include "PolyMod.h"
 int main() {
  juce::ScopedJuceInitialiser_GUI gui;
  if (!auditRegression()) return 100;
  if (!oscillatorArchitecture()) return 101;
  if (!cinemaBankTests()) return 102;
+ if (!polyModTests()) return 106;
  // The on-panel wheel must produce the same audio as MIDI bend, and spring back to centre.
  {
   std::unique_ptr<juce::AudioProcessor> ui(createPluginFilter()), midi(createPluginFilter());
@@ -138,7 +140,7 @@ int main() {
  std::cout<<"PASS state restore\n";
  // Host pages: the panel order for controllers such as Push, every parameter present once, short names.
  {auto* first=dynamic_cast<juce::RangedAudioParameter*>(p->getParameters()[0]);auto* ninth=dynamic_cast<juce::RangedAudioParameter*>(p->getParameters()[8]);
-  if(!first||first->paramID!="wave"||!ninth||ninth->paramID!="osc1Shape"||p->getParameters().size()!=100)return 74;
+  if(!first||first->paramID!="polyEnv"||!ninth||ninth->paramID!="vco1Wave"||p->getParameters().size()!=109)return 74;
   for(auto* b:p->getParameters())if(b->getName(100).length()>12){std::cerr<<"Parameter name too long for a controller: "<<b->getName(100)<<"\n";return 75;}}
  std::cout<<"PASS host pages of eight with short names\n";
  p->setRateAndBufferSizeDetails(48000,256);p->prepareToPlay(48000,256);
@@ -289,7 +291,9 @@ int main() {
    {{{"lfoFilter",2},{"rate",3}},{{"lfoFilter",2},{"rate",3},{"lfoSync",6}}},
    {{{"rate",6},{"decay",.05f},{"sustain",.2f}},{{"rate",6},{"decay",.05f},{"sustain",.2f},{"envLfoTrig",1}}},
    {{{"masterTune",0}},{{"masterTune",40}}},
-   {{{"pwmSource",2}},{{"pwmSource",3}}},{{{"pwmSource",2},{"envLink",0},{"fdecay",.1f},{"fsustain",0}},{{"pwmSource",4},{"envLink",0},{"fdecay",.1f},{"fsustain",0}}},
+   // Poly 8: PWM is heard on the VCOs once their SHAPE reaches the pulse side.
+   {{{"pwmSource",2},{"vcoPwm",.6f},{"vco1Wave",.8f},{"vco2Wave",.8f}},{{"pwmSource",3},{"vcoPwm",.6f},{"vco1Wave",.8f},{"vco2Wave",.8f}}},
+   {{{"pwmSource",2},{"vcoPwm",.6f},{"vco1Wave",.8f},{"vco2Wave",.8f},{"envLink",0},{"fdecay",.1f},{"fsustain",0}},{{"pwmSource",4},{"vcoPwm",.6f},{"vco1Wave",.8f},{"vco2Wave",.8f},{"envLink",0},{"fdecay",.1f},{"fsustain",0}}},
    {{{"vcaMode",0},{"envLink",0},{"fsustain",.1f}},{{"vcaMode",2},{"envLink",0},{"fsustain",.1f}}},
    {{{"lfoFilter",2},{"rate",3},{"lfoManual",1}},{{"lfoFilter",2},{"rate",3},{"lfoManual",1},{"lfoTrig",1}}},
    {{{"arpOn",1},{"arpDivision",2},{"arpGate",.5f}},{{"arpOn",1},{"arpDivision",3},{"arpGate",.5f}}},
@@ -334,7 +338,8 @@ int main() {
  };
  collectPanelIds(*editor);
  for(auto* parameter:p->getParameters())if(auto* identified=dynamic_cast<juce::AudioProcessorParameterWithID*>(parameter))
-  if(!panelIds.contains(identified->paramID)){std::cerr<<"Missing panel control: "<<identified->paramID<<"\n";return 96;}
+  if(!panelIds.contains(identified->paramID)&&!juce::StringArray{"osc1Shape","osc2Shape","wave","width","pwm","sub","noise","osc1Level","jupiterMix"}.contains(identified->paramID)) // Poly 8: fixed shapes and DCO kept for old patches only
+   {std::cerr<<"Missing panel control: "<<identified->paramID<<"\n";return 96;}
  std::cout<<"PASS all "<<panelIds.size()<<" parameters have visible panel controls\n";
  // Both range dials retain all six host values and discrete stops.
  for(const char* id:{"osc1Octave","osc2Octave"}){

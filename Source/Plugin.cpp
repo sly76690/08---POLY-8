@@ -47,8 +47,8 @@ public:
  bool isPatchModified() const {return modified.load();}
   // Host pages of eight, in the order of the front panel.
   static constexpr const char* hostPages[]={
-   "wave","width","pwm","sub","noise","osc1Level","jupiterMix","oscLayer",                     // JUNO, SOURCE MIX
-   "osc1Shape","osc1Octave","vco1Width","crossMod","osc2Shape","osc2Octave","osc2Width","detune", // JUPITER VCOs
+   "polyEnv","polyOsc","polyFreq","polyWidth","polyFilter","oscLayer","vcoSub","vcoNoise",      // POLY-MOD, MIXER
+   "vco1Wave","osc1Octave","vco1Width","crossMod","vco2Wave","osc2Octave","osc2Width","detune",   // OSCILLATORS
    "cutoff","resonance","env","keytrack","lfoFilter","hpfFreq","slope","filterAType",             // FILTER A
    "attack","decay","sustain","release","velocity","vcaMode","portamento","legato",              // AMP
    "fattack","fdecay","fsustain","frelease","envLink","envInvert","envPitch","pwmSource",         // FILTER ENVELOPE
@@ -59,11 +59,12 @@ public:
    "arpOn","arpSync","arpPattern","arpDivision","arpOctaves","arpTempo","arpGate","delayOn",      // ARPEGGIO
    "delayTime","delaySync","delayFeedback","delayMod","delayMix","reverbOn","reverbType","reverbSize", // DELAY, REVERB
    "reverbDamp","reverbColor","reverbMix","lfoManual","lfoTrig","atVolume","atLfo","atDrive",
-   "osc2Tune","oscSync","vco2Low","vcoPwm"};                                        // REVERB, EXPRESSION
+   "osc2Tune","oscSync","vco2Low","vcoPwm",
+   "osc1Shape","osc2Shape","wave","width","pwm","sub","noise","osc1Level","jupiterMix"}; // fixed shapes and the DCO, kept for old patches                                        // REVERB, EXPRESSION
   // Short names for the host and controller displays (Push shows about a dozen characters).
   static String label(const String& id,const String& longName){
    static const std::map<String,String> names{
-    {"jupiterMix","Juno/Jupiter"},{"vcoPwm","VCO PWM"},{"vco1Width","VCO1 Width"},{"vco2Low","VCO2 Low"},{"wave","DCO SawPls"},{"width","DCO Width"},{"pwm","DCO PWM"},{"sub","Sub Level"},{"noise","Noise"},{"osc1Shape","VCO1 Wave"},{"osc1Octave","VCO1 Range"},{"osc1Level","DCO Level"},
+    {"jupiterMix","DCO/VCO"},{"vco1Wave","VCO1 Shape"},{"vco2Wave","VCO2 Shape"},{"vcoSub","VCO Sub"},{"vcoNoise","VCO Noise"},{"polyEnv","PM Env"},{"polyOsc","PM Osc1"},{"polyFreq","PM>Freq2"},{"polyWidth","PM>PW2"},{"polyFilter","PM>Filter"},{"vcoPwm","VCO PWM"},{"vco1Width","VCO1 Width"},{"vco2Low","VCO2 Low"},{"wave","DCO SawPls"},{"width","DCO Width"},{"pwm","DCO PWM"},{"sub","Sub Level"},{"noise","Noise"},{"osc1Shape","VCO1 Wave"},{"osc1Octave","VCO1 Range"},{"osc1Level","DCO Level"},
     {"oscLayer","Source Mix"},{"osc2Width","VCO2 Width"},{"osc2Tune","VCO2 Tune"},{"detune","VCO2 Fine"},{"osc2Shape","VCO2 Wave"},{"osc2Octave","VCO2 Range"},{"oscSync","VCO2 Sync"},{"crossMod","X-Mod"},
     {"cutoff","A Freq"},{"resonance","A Reso"},{"env","A Env"},{"keytrack","Filter Kybd"},{"lfoFilter","Filter LFO"},{"hpfFreq","HPF"},{"slope","A Slope"},{"filterAType","A Model"},
     {"attack","Amp Attack"},{"decay","Amp Decay"},{"sustain","Amp Sustain"},{"release","Amp Release"},{"velocity","Velocity"},{"vcaMode","VCA Mode"},{"portamento","Portamento"},{"legato","Legato"},
@@ -122,12 +123,18 @@ public:
   add("fxDrive","Drive",0,1,0);add("delayTime","Delay time (s)",0.03f,1.5f,0.3f);add("delayFeedback","Delay feedback",0,1.1f,0.3f);add("delayMod","Delay modulation",0,1,0.3f);add("delayMix","Delay mix",0,0.65f,0);
   add("reverbSize","Reverb size",0,1,0.5f);add("reverbDamp","Reverb damping",0,1,0.5f);add("reverbMix","Reverb mix",0,0.65f,0);add("reverbColor","Reverb color",0,1,0.4f);
   add("oscLayer","Jupiter source mix",0,1,.5f);
-  add("jupiterMix","Juno / Jupiter mix",0,1,0);add("vco1Width","VCO 1 pulse width",.08f,.92f,.5f);add("vcoPwm","VCO PWM depth",0,1,0);
+  add("jupiterMix","DCO / VCO mix",0,1,1); /* Poly 8 plays its two VCOs; the DCO stays for old patches */ add("vco1Width","VCO 1 pulse width",.08f,.92f,.5f);add("vcoPwm","VCO PWM depth",0,1,0);
   keep(std::make_unique<AudioParameterBool>(ParameterID{"vco2Low",1},label("vco2Low","VCO 2 low frequency"),false));
   keep(std::make_unique<AudioParameterBool>(ParameterID{"envLink",1},label("envLink","Link filter to amp envelope"),true));
   auto choice=[&](const char* id,const char* name,StringArray values,int initial=0){keep(std::make_unique<AudioParameterChoice>(ParameterID{id,1},label(id,name),values,initial));};
-  choice("osc1Shape","VCO 1 shape",{"Saw","Pulse","Triangle","Sine","Square","Noise"});
-  choice("osc2Shape","VCO 2 shape",{"Saw","Pulse","Triangle","Sine","Square","Noise"});
+  choice("osc1Shape","VCO 1 shape",{"Saw","Pulse","Triangle","Sine","Square","Noise","Morph"},6);
+  choice("osc2Shape","VCO 2 shape",{"Saw","Pulse","Triangle","Sine","Square","Noise","Morph"},6);
+  // Poly 8: one continuous wave control per VCO (triangle, saw, square, narrow pulse), the mixer, and POLY-MOD.
+  add("vco1Wave","VCO 1 shape",0,1,.33f);add("vco2Wave","VCO 2 shape",0,1,.33f);add("vcoSub","VCO sub",0,1,0);add("vcoNoise","VCO noise",0,1,0);
+  add("polyEnv","Poly-mod filter envelope",-1,1,0);add("polyOsc","Poly-mod VCO 1",-1,1,0);
+  keep(std::make_unique<AudioParameterBool>(ParameterID{"polyFreq",1},label("polyFreq","Poly-mod to VCO 2 frequency"),true));
+  keep(std::make_unique<AudioParameterBool>(ParameterID{"polyWidth",1},label("polyWidth","Poly-mod to VCO 2 pulse width"),false));
+  keep(std::make_unique<AudioParameterBool>(ParameterID{"polyFilter",1},label("polyFilter","Poly-mod to filters"),false));
   add("osc1Level","Oscillator I level",0,1,1);add("osc2Width","Oscillator II pulse width",.08f,.92f,.5f);
   choice("osc1Octave","VCO 1 range",{"64'","32'","16'","8'","4'","2'"},3);
   choice("osc2Octave","VCO 2 range",{"64'","32'","16'","8'","4'","2'"},3);
@@ -207,9 +214,12 @@ public:
   auto set=[&](const char* id,float value){auto* param=state.getParameter(id);param->setValueNotifyingHost(param->convertTo0to1(value));};
   set("mode",float(p.engine));set("cutoff",p.cutoff);set("resonance",p.resonance);set("attack",p.attack);set("decay",p.decay);set("sustain",p.sustain);set("release",p.release);set("wave",p.wave);set("sub",p.sub);set("detune",p.detune);set("chorus",p.chorus);set("env",p.amount);
   set("fattack",p.attack*.6f);set("fdecay",p.decay);set("fsustain",p.sustain*.6f);set("frelease",p.release);
-  set("jupiterMix",p.engine==0?0.f:1.f);set("oscLayer",.5f);
+  // Poly 8: every patch plays the two VCOs. The patch's saw/pulse balance becomes the SHAPE of both (saw to square),
+  // its sub level the VCO sub, and VCO 2 is detuned against VCO 1 by the patch's detune.
+  set("jupiterMix",1.f);set("oscLayer",.5f);
+  set("vco1Wave",.33f+.33f*p.wave);set("vco2Wave",.33f+.33f*p.wave);set("vcoSub",p.sub*.6f);
   set("envLink",p.engine==0?1.f:0.f);
-  if(index==10 || index==16 || index==19){set("jupiterMix",.5f);set("envLink",0);set("slope",0);}
+  if(index==10 || index==16 || index==19){set("envLink",0);set("slope",0);}
   if(index==10)set("fxDrive",.25f);
   // INIT: the filter has its own envelope, falling back low after each attack, so ENV sweeps every note and FREQ sets
   // the held tone (following the amp envelope it stayed 70 % open and pushed FREQ, and the resonance, far up).

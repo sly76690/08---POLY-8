@@ -18,7 +18,17 @@ ctest --test-dir build --output-on-failure
 bash tools/paquet.sh
 ```
 
-## État
+## État (v0.2, moteur Poly 8)
 
-Copie d'Orbit 106 renommée (Poly 8, bundle com.sfinstruments.poly8, code AU Ply8).
-Le moteur est encore celui d'Orbit : prochaine étape, retirer la partie DCO et ajouter la Poly-Mod.
+- **Deux VCO par voix** avec un **SHAPE continu** (triangle → dent de scie → carré → impulsion étroite), sync, cross-mod.
+- **MIXER** : balance VCO 1 / VCO 2, SUB (carré une octave sous le VCO 1), NOISE, VCO PWM.
+- **POLY-MOD** : enveloppe du filtre et VCO 1 (dosages bipolaires) vers FREQ 2, PW 2 et FILTER (les deux filtres), voix par voix.
+- **16 sons d'usine** Poly 8 (`python3 tools/sons.py`), programmés de zéro.
+- Le DCO hérité d'Orbit reste dans le moteur (paramètres cachés) pour relire les anciens patchs.
+- Tests : 37, dont `Tests/PolyMod.h` (SHAPE, mixer, sources et destinations de la Poly-Mod).
+
+## À faire
+
+- Nom commercial, logo et couleur d'accent (la façade reprend encore l'icône O6 d'Orbit).
+- Banque *Midnight Signals* : elle vient d'Orbit (sons DCO) — la garder ou la retirer de Poly 8.
+- Passe-bas revoicé « crémeux » avec auto-oscillation, passe-haut sans résonance, phaser, séquenceur 16 pas.

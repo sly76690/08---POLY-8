@@ -161,6 +161,9 @@ public:
   source.fine=p("detune");source.tune=p("osc2Tune");source.crossMod=p("crossMod");source.age=p("age");
   source.shape1=int(p("osc1Shape"));source.shape2=int(p("osc2Shape"));source.range1=int(p("osc1Octave"));source.range2=int(p("osc2Octave"));
   source.sync=p("oscSync")>.5f;source.lowFrequency=p("vco2Low")>.5f;
+  source.morph1=p("vco1Wave");source.morph2=p("vco2Wave");source.vcoSub=p("vcoSub");source.vcoNoise=p("vcoNoise");
+  source.polyEnv=p("polyEnv");source.polyOsc=p("polyOsc");source.polyFreq=p("polyFreq")>.5f;source.polyWidth=p("polyWidth")>.5f;
+  const bool polyFilter=p("polyFilter")>.5f;
   oscillators.configure(source,fresh);
   const bool linked=p("envLink")>.5f;
   // VCA mode GATE: the amplifier simply opens and closes with the key; the ADSR keeps running for a filter that follows it.
@@ -219,8 +222,8 @@ public:
    const double frequencyNow=frequency*bend*std::exp2((modulation*pitchDepth+lfoNow*vibratoDepth*wheel)/12.);
    const float pwmSignal=pwmSource==0?.18f*modulation:pwmSource==2?.4f*fe:pwmSource==3?-.4f*fe:pwmSource==4?.4f*e:pwmSource==5?-.4f*e:0.f; // LFO, MAN, filter env +/-, amp env +/-
    punch*=punchDecay; // the percussive front of a vintage note
-   float ca=jlimit(25.f,float(sr*.45),(1.f+punchCutoff*punch)*cutNow*cutSpread*tracking*velocityOpen*wheelOpen*std::exp2(pressFilter*pressureNow)*bendCutoff*std::pow(2.f,fe*amount*polarity*6+modulation*filterDepth+lfoNow*pressLfo*pressureNow));
-   float cb=jlimit(25.f,float(sr*.45),cutBNow*cutSpread*tracking*velocityOpen*wheelOpen*std::exp2(pressFilter*pressureNow)*bendCutoff*std::pow(2.f,fe*amountB*6+modulation*filterDepth+lfoNow*pressLfo*pressureNow));
+   const float caBase=jlimit(25.f,float(sr*.45),(1.f+punchCutoff*punch)*cutNow*cutSpread*tracking*velocityOpen*wheelOpen*std::exp2(pressFilter*pressureNow)*bendCutoff*std::pow(2.f,fe*amount*polarity*6+modulation*filterDepth+lfoNow*pressLfo*pressureNow));
+   const float cbBase=jlimit(25.f,float(sr*.45),cutBNow*cutSpread*tracking*velocityOpen*wheelOpen*std::exp2(pressFilter*pressureNow)*bendCutoff*std::pow(2.f,fe*amountB*6+modulation*filterDepth+lfoNow*pressLfo*pressureNow));
    // Oscillators, mixer, filters and drive run at twice the sample rate and come back down through a half-band
    // filter to reduce aliasing from sync, cross modulation and saturation. This does not eliminate all aliasing.
    // Pressure can also push the drive (from any PRE setting, and in both voice counts), add LFO on the filters, and
@@ -229,7 +232,10 @@ public:
    if(pressDrive>0.f&&pressureNow>.0005f){g=jmin(1.f,grit+pressDrive*pressureNow);gPush=1.f+3.f*g;gLean=.15f*g;gOffset=std::tanh(gLean);gScale=(1.f+g)/gPush;gMix=jmin(1.f,g*4.f);}
    float twice[2];
    for(int k=0;k<2;++k){
-    float sample=oscillators.process(frequencyNow,fe*envPitch,pwmSignal*pwmDepth,pwmSignal*vcoPwmDepth);
+    float sample=oscillators.process(frequencyNow,fe*envPitch,pwmSignal*pwmDepth,pwmSignal*vcoPwmDepth,fe);
+    // POLY-MOD > FILTER: the same signal moves both cutoffs, up to three octaves each way, at audio rate.
+    const float polyOpen=polyFilter?std::exp2(polyFilterOctaves*oscillators.polyMod()):1.f;
+    const float ca=jlimit(25.f,float(sr*.9),caBase*polyOpen),cb=jlimit(25.f,float(sr*.9),cbBase*polyOpen);
     if(hpfMode>=2)sample=highpass.processSample(0,sample);else if(hpfMode==0){bass+=bassRate*(sample-bass);sample+=boostGain*bass;}
     switch(route){case 1:sample=b.process(sample,cb);break;case 2:sample=b.process(a.process(sample,ca),cb);break;case 3:sample=a.process(b.process(sample,cb),ca);break;case 4:sample=(1-blend)*a.process(sample,ca)+blend*b.process(sample,cb);break;default:sample=a.process(sample,ca);}
     if(g>0.f){sample+=gMix*((std::tanh(gPush*sample+gLean)-gOffset)*gScale-sample);dc+=dcRate*(sample-dc);sample-=dc;} // the lopsided curve leaves a small offset: removed here
@@ -253,5 +259,5 @@ private:
  static constexpr float keyFollow=.85f,punchSeconds=.006f,punchCutoff=.4f,punchLevel=.25f;
  static constexpr float cutoffError=.12f,envelopeError=.15f,lfoRateError=.12f;
  // Tuning values for the high-pass switch: starting points to adjust by ear, not hardware measurements.
- static constexpr float bassBoostHz=90.f,bassBoostGain=1.2f;int wheelValue=8192;
+ static constexpr float bassBoostHz=90.f,bassBoostGain=1.2f,polyFilterOctaves=3.f;int wheelValue=8192;
 };

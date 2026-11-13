@@ -1,142 +1,77 @@
-# Orbit - writes the sounds shipped with the installer (menu SOUNDS) into Presets/Sounds.
-# Each sound only lists what differs from the default settings: Orbit fills in the rest when it loads it.
+# Poly 8 - writes the factory sounds shipped with the installer (menu SOUNDS) into Presets/Sounds.
+# Each sound only lists what differs from the default settings: Poly 8 fills in the rest when it loads it.
+# Every sound is programmed from scratch on Poly 8 by sound type (brass, bells, sync lead...): no factory data
+# or patch of any other instrument is copied.
 # Usage:  python3 tools/sons.py      then  bash tools/paquet.sh
-# A sound saved with SAVE can join them too: copy its .orbitpreset file from
-# ~/Library/Application Support/SF Instruments/Poly 8/Presets/User into Presets/Sounds (and rename it).
-import os
+import os, glob
 from xml.sax.saxutils import quoteattr
 
-# Shared starting point of the dual-filter sounds: eight voices, each filter with its own envelope settings.
-DUAL = {"mode": 1, "envLink": 0, "jupiterMix": 0, "age": .45, "voiceWidth": .7}   # the JUNO DCO through both filters
+# Shapes: 0 triangle, .33 saw, .66 square, 1 narrow pulse. Ranges: 0 = 64' ... 3 = 8' ... 5 = 2'.
+# oscLayer: 0 = VCO 1 only, 1 = VCO 2 only. POLY-MOD: polyEnv / polyOsc (-1..1) into polyFreq / polyWidth / polyFilter.
+POLY = {"mode": 1, "jupiterMix": 1, "osc1Shape": 6, "osc2Shape": 6, "envLink": 0, "chorusMode": 0,
+        "filterAType": 0, "slope": 1, "hpfFreq": .27, "age": .35, "voiceWidth": .6}
 
 SOUNDS = {
-    # Two resonant peaks in series: a pad that sounds like a vowel, the second peak closing as the first opens.
-    "PAD - Twin Peaks": dict(DUAL, filterRoute=2, filterAType=0, slope=1, cutoff=850, resonance=.55, env=.3,
-        filterBType=1, slopeB=0, cutoffB=2300, resonanceB=.72, envB=-.35,
-        wave=.55, pwm=.35, sub=.35, detune=10, attack=.9, decay=2.5, sustain=.85, release=3.2,
-        fattack=1.4, fdecay=3.5, fsustain=.45, frelease=3.0, lfoShape=1, rate=.22, lfoFilter=.35,
-        chorusMode=2, chorus=.55, reverbType=2, reverbSize=.75, reverbMix=.22),
-    # A talking lead pad: the LFO moves both peaks together, restarted at each note.
-    "VOX - Talking Formant": dict(DUAL, filterRoute=2, filterAType=1, slope=0, cutoff=650, resonance=.68, env=.2,
-        filterBType=1, slopeB=0, cutoffB=1900, resonanceB=.76, envB=.15,
-        wave=.8, sub=.2, detune=7, attack=.08, decay=1.2, sustain=.8, release=1.1,
-        fattack=.05, fdecay=1.0, fsustain=.5, frelease=1.0, lfoShape=1, rate=1.6, lfoFilter=.9, lfoKeyTrig=1,
-        chorusMode=1, chorus=.4, delaySync=6, delayFeedback=.35, delayMix=.18, reverbMix=.12),
-    # Two filters side by side: a dark ladder and a bright, singing state-variable, opened by the pressure of the keys.
-    "PAD - Parallel Breath": dict(DUAL, filterRoute=4, filterBlend=.5, filterAType=0, slope=1, cutoff=520, resonance=.3, env=.35,
-        filterBType=1, slopeB=0, cutoffB=3200, resonanceB=.55, envB=.2,
-        wave=.4, pwm=.5, sub=.45, detune=14, attack=1.4, decay=3.0, sustain=.9, release=4.0,
-        fattack=2.2, fdecay=4.0, fsustain=.6, frelease=4.0, atFilter=.4, rate=.35, lfoFilter=.2,
-        chorusMode=3, chorus=.6, reverbType=2, reverbSize=.8, reverbMix=.25),
-    # A bass struck through a ringing filter, then rounded by the second one.
-    "BASS - Double Tok": dict(DUAL, filterRoute=3, filterAType=0, slope=1, cutoff=1300, resonance=.2, env=.15,
-        filterBType=1, slopeB=1, cutoffB=380, resonanceB=.8, envB=.7,
-        wave=.3, sub=.85, detune=4, attack=.002, decay=.45, sustain=.7, release=.15,
-        fattack=.001, fdecay=.22, fsustain=0, frelease=.15, keytrack=.6, velFilter=.35, voiceMode=1, legato=1, portamento=.04,
-        chorusMode=0, age=.3, voiceWidth=.2),
-    # A lead that growls: PRE drive after the two filters, a short glide.
-    "LEAD - Growl Pair": dict(DUAL, filterRoute=2, filterAType=0, slope=1, cutoff=1500, resonance=.55, env=.45,
-        filterBType=1, slopeB=0, cutoffB=2600, resonanceB=.5, envB=.25,
-        wave=.9, sub=.3, detune=9, attack=.005, decay=.6, sustain=.75, release=.35,
-        fattack=.004, fdecay=.7, fsustain=.4, frelease=.4, voiceDrive=.7, voiceMode=1, legato=1, portamento=.08,
-        wheelDepth=.5, chorusMode=1, chorus=.3, delaySync=5, delayFeedback=.3, delayMix=.15),
-    # Electric-piano-like keys; hold LFO TRIG (LFO MAN) to bring in the shimmer.
-    "KEYS - Manual Shimmer": dict(DUAL, filterRoute=4, filterBlend=.4, filterAType=0, slope=1, cutoff=1100, resonance=.15, env=.4,
-        filterBType=1, slopeB=0, cutoffB=4200, resonanceB=.45, envB=.3,
-        wave=.15, pwm=.2, sub=.3, detune=6, attack=.003, decay=1.6, sustain=.35, release=.9,
-        fattack=.002, fdecay=.9, fsustain=.2, frelease=.8, velFilter=.5, lfoManual=1, lfoDelay=.4, rate=5.5, lfoPitch=.18, lfoFilter=.4,
-        chorusMode=2, chorus=.45, delaySync=5, delayFeedback=.3, delayMix=.15, reverbMix=.15),
-    # A fast arpeggio in thirty-second notes through two filters: hold a chord.
-    "ARP - Glass Runner": dict(DUAL, filterRoute=3, filterAType=0, slope=1, cutoff=2400, resonance=.25, env=.3,
-        filterBType=1, slopeB=0, cutoffB=900, resonanceB=.7, envB=.55,
-        wave=.7, sub=.2, detune=6, attack=.002, decay=.25, sustain=.2, release=.2,
-        fattack=.001, fdecay=.18, fsustain=0, frelease=.15, arpOn=1, arpDivision=3, arpTempo=100, arpPattern=2, arpOctaves=1, arpGate=.5,
-        chorusMode=1, chorus=.35, delaySync=6, delayFeedback=.45, delayMix=.2, reverbMix=.15),
+    "BRASS - Poly Brass": dict(POLY, vco1Wave=.33, vco2Wave=.33, detune=7, cutoff=650, resonance=.12, env=.55, keytrack=.5,
+        attack=.04, decay=.8, sustain=.8, release=.35, fattack=.09, fdecay=.9, fsustain=.45, frelease=.4, velFilter=.3,
+        atFilter=.35, atVolume=.25, wheelDepth=.3, reverbMix=.12),
+    "BRASS - Stab Hits": dict(POLY, vco1Wave=.36, vco2Wave=.33, detune=11, cutoff=900, resonance=.15, env=.6,
+        attack=.004, decay=.35, sustain=.3, release=.2, fattack=.002, fdecay=.28, fsustain=.15, frelease=.2, velFilter=.4,
+        atFilter=.3, delaySync=6, delayFeedback=.25, delayMix=.12),
+    "BELL - Poly Bells": dict(POLY, oscLayer=1, vco1Wave=0, vco2Wave=0, osc1Octave=4, osc2Octave=3, polyOsc=.42, polyEnv=.18,
+        cutoff=7000, resonance=.08, env=.15, attack=.002, decay=2.6, sustain=0, release=2.2, fattack=.001, fdecay=1.4, fsustain=0, frelease=1.5,
+        velFilter=.3, atLfo=.2, lfoPitch=.08, rate=4.5, reverbType=2, reverbSize=.7, reverbMix=.25, delaySync=5, delayFeedback=.3, delayMix=.12),
+    "BELL - Glass Tines": dict(POLY, oscLayer=.75, vco1Wave=0, vco2Wave=.1, osc1Octave=5, osc2Octave=4, polyOsc=.28, polyEnv=.1,
+        cutoff=5200, resonance=.1, env=.2, attack=.002, decay=1.6, sustain=0, release=1.4, fattack=.001, fdecay=.8, fsustain=0, frelease=.9,
+        velFilter=.4, chorusMode=1, chorus=.3, reverbMix=.18),
+    "LEAD - Sync Sweep": dict(POLY, oscLayer=1, oscSync=1, vco1Wave=.33, vco2Wave=.33, osc2Tune=5, polyEnv=.55,
+        cutoff=3200, resonance=.2, env=.25, attack=.003, decay=.6, sustain=.85, release=.3, fattack=.001, fdecay=.9, fsustain=.25, frelease=.4,
+        voiceMode=1, legato=1, portamento=.05, wheelDepth=.4, lfoDelay=.5, rate=5.5, atFilter=.25, delaySync=5, delayFeedback=.35, delayMix=.15),
+    "LEAD - Poly Growl": dict(POLY, vco1Wave=.4, vco2Wave=.66, detune=6, polyOsc=.22, polyFilter=1, polyFreq=0,
+        cutoff=1100, resonance=.5, env=.45, attack=.004, decay=.5, sustain=.7, release=.25, fattack=.003, fdecay=.6, fsustain=.35, frelease=.3,
+        voiceDrive=.6, voiceMode=1, legato=1, portamento=.06, atDrive=.5, atFilter=.25),
+    "PAD - Wide Eight": dict(POLY, vco1Wave=.4, vco2Wave=.45, detune=10, osc2Octave=3, cutoff=1500, resonance=.12, env=.2,
+        attack=1.3, decay=2.0, sustain=.85, release=3.2, fattack=1.6, fdecay=3.0, fsustain=.6, frelease=3.2, rate=.3, lfoFilter=.25,
+        chorusMode=1, chorus=.35, atFilter=.3, atVolume=.25, wheelDepth=.25, reverbSize=.75, reverbMix=.24),
+    "PAD - Filter Choir": dict(POLY, vco1Wave=.66, vco2Wave=.8, detune=8, polyEnv=-.35, polyFreq=0, polyWidth=1,
+        cutoff=1200, resonance=.3, env=.25, attack=1.0, decay=2.5, sustain=.8, release=3.5, fattack=2.2, fdecay=3.5, fsustain=.4, frelease=3.0,
+        vcoPwm=.35, pwmSource=0, rate=.45, atFilter=.3, wheelDepth=.25, reverbType=2, reverbSize=.8, reverbMix=.26),
+    "PAD - Dark Matter": dict(POLY, vco1Wave=.33, vco2Wave=.2, detune=14, osc2Octave=2, polyEnv=.12, cutoff=320, resonance=.55, env=.45,
+        attack=1.8, decay=3.0, sustain=.85, release=4.5, fattack=3.5, fdecay=4.0, fsustain=.3, frelease=4.0, rate=.18, lfoFilter=.3,
+        atFilter=.35, atLfo=.25, reverbType=2, reverbSize=.85, reverbMix=.28, delaySync=4, delayFeedback=.4, delayMix=.12),
+    "STRINGS - Saw Ensemble": dict(POLY, vco1Wave=.33, vco2Wave=.33, detune=13, cutoff=3200, resonance=.08, env=.12, hpfFreq=.45,
+        attack=.7, decay=1.5, sustain=.9, release=2.4, fattack=.8, fdecay=2.0, fsustain=.7, frelease=2.2, chorusMode=2, chorus=.5,
+        atVolume=.3, wheelDepth=.25, reverbMix=.2),
+    "BASS - Poly Unison": dict(POLY, voiceMode=2, unisonSpread=14, vco1Wave=.33, vco2Wave=.45, vcoSub=.5, cutoff=380, resonance=.35, env=.6,
+        keytrack=.4, attack=.002, decay=.5, sustain=.6, release=.15, fattack=.001, fdecay=.3, fsustain=0, frelease=.15, velFilter=.35,
+        legato=1, portamento=.03, atDrive=.4, voiceWidth=.3),
+    "BASS - Sync Bass": dict(POLY, oscLayer=.7, oscSync=1, osc1Octave=2, osc2Octave=2, osc2Tune=3, polyEnv=.35, vcoSub=.4,
+        cutoff=900, resonance=.3, env=.5, attack=.002, decay=.4, sustain=.5, release=.12, fattack=.001, fdecay=.22, fsustain=0, frelease=.12,
+        voiceMode=1, legato=1, atFilter=.25, voiceWidth=.2),
+    "KEYS - Clav Pulse": dict(POLY, vco1Wave=.92, vco2Wave=.85, detune=4, cutoff=1900, resonance=.3, env=.5, keytrack=.6,
+        attack=.002, decay=.55, sustain=.2, release=.25, fattack=.001, fdecay=.25, fsustain=.1, frelease=.2, velFilter=.5, atFilter=.3,
+        chorusMode=1, chorus=.25),
+    "PLUCK - Harp Glass": dict(POLY, vco1Wave=.55, vco2Wave=.1, osc2Octave=4, detune=3, cutoff=2600, resonance=.2, env=.4,
+        attack=.002, decay=.9, sustain=0, release=.8, fattack=.001, fdecay=.35, fsustain=0, frelease=.6, velFilter=.4, atFilter=.25,
+        delaySync=6, delayFeedback=.35, delayMix=.18, reverbMix=.18),
+    "ARP - Poly Mod Run": dict(POLY, vco1Wave=.2, vco2Wave=.5, osc2Octave=4, polyOsc=.3, cutoff=2200, resonance=.35, env=.4,
+        attack=.002, decay=.3, sustain=.4, release=.2, fattack=.001, fdecay=.2, fsustain=0, frelease=.15,
+        arpOn=1, arpDivision=2, arpTempo=110, arpPattern=2, arpOctaves=1, arpGate=.6, atFilter=.3,
+        delaySync=6, delayFeedback=.4, delayMix=.18, reverbMix=.12),
+    "FX - Metal Rain": dict(POLY, oscLayer=.8, vco1Wave=.66, vco2Wave=0, osc2Octave=5, polyOsc=.7, polyFilter=1, vcoNoise=.2,
+        cutoff=2400, resonance=.4, env=.3, attack=.01, decay=1.8, sustain=.3, release=2.5, fattack=.005, fdecay=1.5, fsustain=.2, frelease=2.0,
+        atLfo=.3, rate=7, lfoFilter=.5, reverbType=2, reverbSize=.9, reverbMix=.32, delaySync=7, delayFeedback=.5, delayMix=.2),
 }
 
-# Standards of the eighties, programmed from scratch on Orbit in the spirit of famous records and of the classic
-# Juno / Jupiter sound types: no factory data from any instrument is copied, only the well-known recipe of each sound.
-# State version 5: JUPITER = the two VCOs (shapes 0 saw, 1 pulse, 2 tri, 3 sine, 4 square, 5 noise; ranges 0 = 64' ... 3 = 8' ... 5 = 2'),
-# oscLayer = VCO 1 / VCO 2 balance, jupiterMix = JUNO DCO / JUPITER VCOs.
-CLASSIC = {"mode": 1, "envLink": 0, "jupiterMix": 1, "osc1Shape": 0, "osc2Shape": 0, "oscLayer": .5}
-JUNO = {"mode": 0, "jupiterMix": 0}
-SOUNDS.update({
-    # The big detuned saw brass stab of 1984 (an Oberheim on the record): two saws per voice, every voice a bit off.
-    "BRASS - Rooftop Jump": dict(CLASSIC, detune=9, sub=0, filterAType=0, slope=1, cutoff=3000, resonance=.1, env=.25, keytrack=.5,
-        attack=.003, decay=.4, sustain=.9, release=.25, fattack=.005, fdecay=.6, fsustain=.6, frelease=.3,
-        age=.7, voiceWidth=.8, chorusMode=0, reverbType=1, reverbMix=.1),
-    # The dark plucked arpeggio of an eighties-style sci-fi title: hold C E G B, at 84 BPM.
-    "ARP - Upside Down": dict(CLASSIC, oscLayer=.38, detune=5, sub=0, filterAType=0, slope=1, cutoff=500, resonance=.45, env=.55,
-        attack=.002, decay=.5, sustain=.4, release=.3, fattack=.001, fdecay=.35, fsustain=.1, frelease=.3,
-        arpOn=1, arpTempo=84, arpDivision=1, arpPattern=0, arpOctaves=1, arpGate=.6,
-        delaySync=6, delayFeedback=.3, delayMix=.15, reverbType=2, reverbSize=.8, reverbMix=.2, chorusMode=0),
-    # The haunting mono lead over it: saw and narrow pulse, delayed vibrato, glide, a long space.
-    "LEAD - Upside Lead": dict(CLASSIC, osc2Shape=1, osc2Width=.3, oscLayer=.42, detune=6, filterAType=0, slope=1, cutoff=1400, resonance=.25, env=.35,
-        attack=.03, decay=.8, sustain=.8, release=.6, fattack=.02, fdecay=1.0, fsustain=.5, frelease=.6,
-        voiceMode=1, legato=1, portamento=.06, lfoDelay=.6, rate=5, lfoPitch=.12,
-        delaySync=5, delayFeedback=.35, delayMix=.2, reverbType=2, reverbSize=.85, reverbMix=.3, chorusMode=0),
-    # The classic string machine of the eighties polys: a pulse that breathes with the LFO, chorus II.
-    "PAD - Juno Strings": dict(JUNO, wave=.5, width=.5, pwm=.55, pwmSource=0, rate=.8, sub=.2, cutoff=3500, resonance=.1, env=.1, keytrack=.5,
-        attack=.45, decay=1.0, sustain=.9, release=1.2, chorusMode=2, chorus=.7, hpfFreq=.4, reverbMix=.15),
-    # Square and sub, the bass of house and synth-pop.
-    "BASS - Juno Sub": dict(JUNO, wave=1, width=.5, sub=1, cutoff=380, resonance=.25, env=.45, keytrack=.3, envLink=1,
-        attack=.002, decay=.35, sustain=.4, release=.08, chorusMode=1, chorus=.25, hpfFreq=0),
-    # The rave hoover: fast-moving pulse an octave down, a pitch swoop, glide and every chorus at once.
-    "LEAD - Hoover": dict(JUNO, jupiterMix=1, osc1Shape=1, osc2Shape=1, osc1Octave=2, osc2Octave=2, detune=15, vco1Width=.3, osc2Width=.3, vcoPwm=.8, oscLayer=.5, pwmSource=0, rate=6, cutoff=6000, resonance=0, env=0,
-        envLink=0, fattack=.001, fdecay=.25, fsustain=0, frelease=.2, envPitch=-3, attack=.005, decay=.5, sustain=1, release=.3,
-        voiceMode=1, portamento=.12, chorusMode=3, chorus=.9),
-    # The lush eight-voice saw strings: two detuned saws per voice, slow everything.
-    "PAD - Jupiter Saw Strings": dict(CLASSIC, detune=14, filterAType=0, slope=1, cutoff=2200, resonance=.15, env=.2,
-        attack=1.1, decay=2.0, sustain=.9, release=2.5, fattack=1.2, fdecay=2.0, fsustain=.7, frelease=2.5,
-        lfoPitch=.06, rate=5, lfoDelay=1.0, age=.6, voiceWidth=.9, chorusMode=1, chorus=.35, reverbType=2, reverbSize=.8, reverbMix=.25),
-    # A synced oscillator swept by the envelope: the metallic bell-lead of the big poly synths.
-    "BELL - Sync Bell": dict(CLASSIC, oscSync=1, osc2Tune=7, envPitch=12, oscLayer=.85, filterAType=1, slope=0, cutoff=4000, resonance=.1, env=.2,
-        attack=.001, decay=2.5, sustain=0, release=2.0, fattack=.001, fdecay=.6, fsustain=0, frelease=1.5,
-        chorusMode=1, chorus=.3, delaySync=6, delayFeedback=.3, delayMix=.15, reverbMix=.25),
-    # Bright pop chords: saw and sub through a quick filter envelope, chorus I.
-    "KEYS - Poly 84": dict(JUNO, wave=.2, sub=.4, cutoff=1600, resonance=.15, env=.45, envLink=0, velFilter=.3,
-        attack=.002, decay=.8, sustain=.7, release=.4, fattack=.002, fdecay=.55, fsustain=.25, frelease=.4, chorusMode=1, chorus=.5),
-    # A resonant plucked bass for funk lines.
-    "BASS - Funk Pluck": dict(JUNO, wave=.4, sub=.6, cutoff=280, resonance=.55, env=.7, envLink=0, keytrack=.4, velFilter=.4,
-        attack=.002, decay=.3, sustain=.6, release=.08, fattack=.001, fdecay=.18, fsustain=0, frelease=.1, voiceMode=1, chorusMode=0),
-    # The slow filter sweep pad: closed, then opening over seconds.
-    "PAD - Sweep 82": dict(CLASSIC, oscLayer=.45, detune=10, filterAType=0, slope=1, cutoff=300, resonance=.45, env=.8,
-        attack=.6, decay=3.0, sustain=.9, release=3.0, fattack=2.5, fdecay=4.0, fsustain=.4, frelease=3.0,
-        chorusMode=2, chorus=.5, reverbType=2, reverbSize=.75, reverbMix=.2),
-    # Synth brass of the Juno kind: one saw, a soft swell of the filter, delayed vibrato.
-    "BRASS - Juno Brass": dict(JUNO, wave=0, sub=.3, cutoff=900, resonance=.15, env=.55, envLink=0,
-        attack=.04, decay=.6, sustain=.8, release=.3, fattack=.06, fdecay=.7, fsustain=.45, frelease=.3,
-        lfoDelay=.5, lfoPitch=.08, rate=5.5, chorusMode=1, chorus=.45),
-})
-
-# Key pressure (aftertouch) in every sound: how hard a held key is pressed opens, lifts, moves or roughens it.
-# Pads and brass also get a gentler mod wheel vibrato (WHEEL).
-PRESSURE = {
-    "PAD - Twin Peaks": dict(atFilter=.3, atLfo=.3, atVolume=.25, wheelDepth=.25),
-    "VOX - Talking Formant": dict(atLfo=.5, atFilter=.2),
-    "PAD - Parallel Breath": dict(atFilter=.4, atVolume=.4, wheelDepth=.25),
-    "BASS - Double Tok": dict(atFilter=.25, atDrive=.5),
-    "LEAD - Growl Pair": dict(atDrive=.6, atFilter=.3),
-    "KEYS - Manual Shimmer": dict(atFilter=.2, atVolume=.2),
-    "ARP - Glass Runner": dict(atFilter=.35),
-    "BRASS - Rooftop Jump": dict(atFilter=.35, atVolume=.3, wheelDepth=.3),
-    "ARP - Upside Down": dict(atFilter=.4),
-    "LEAD - Upside Lead": dict(atFilter=.25, atVolume=.2),
-    "PAD - Juno Strings": dict(atFilter=.25, atVolume=.25, wheelDepth=.25),
-    "BASS - Juno Sub": dict(atDrive=.4),
-    "LEAD - Hoover": dict(atDrive=.5, atLfo=.2),
-    "PAD - Jupiter Saw Strings": dict(atFilter=.3, atVolume=.3, wheelDepth=.25),
-    "BELL - Sync Bell": dict(atLfo=.3),
-    "KEYS - Poly 84": dict(atFilter=.3),
-    "BASS - Funk Pluck": dict(atFilter=.3, atDrive=.3, gain=.95),
-    "PAD - Sweep 82": dict(atFilter=.3, atLfo=.25, wheelDepth=.25),
-    "BRASS - Juno Brass": dict(atFilter=.35, atVolume=.3, wheelDepth=.3),
-}
-for name, extra in PRESSURE.items():
-    SOUNDS[name].update(extra)
+# Levels evened out by measurement (a held chord, rms): the quieter plucks and arp get more output, the big pads less.
+GAINS = {'ARP - Poly Mod Run': 1.0, 'PLUCK - Harp Glass': 1.0, 'BELL - Glass Tines': 1.0, 'BASS - Sync Bass': 1.0, 'BRASS - Stab Hits': 0.95, 'KEYS - Clav Pulse': 0.9, 'PAD - Wide Eight': 0.85, 'LEAD - Poly Growl': 0.85, 'PAD - Filter Choir': 0.55, 'STRINGS - Saw Ensemble': 0.58, 'BRASS - Poly Brass': 0.6}
+for _name, _gain in GAINS.items():
+    SOUNDS[_name]["gain"] = _gain
 
 folder = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "Presets", "Sounds")
 os.makedirs(folder, exist_ok=True)
+for old in glob.glob(os.path.join(folder, "*.orbitpreset")):   # the bank is rewritten as a whole
+    os.remove(old)
 for name, settings in SOUNDS.items():
     lines = ['<?xml version="1.0" encoding="UTF-8"?>', '<OrbitState stateVersion="5" program="0" modified="0">']
     lines += ['  <PARAM id=%s value="%s"/>' % (quoteattr(key), repr(float(value))) for key, value in settings.items()]

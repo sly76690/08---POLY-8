@@ -183,7 +183,12 @@ public:
   const float diameter=jmin(float(slider.getProperties().getWithDefault("faceDiameter",34.f)),float(jmin(w,h))-8);
   const auto area=Rectangle<float>(float(x),float(y),float(w),float(h)).withSizeKeepingCentre(diameter,diameter);
   const auto centre=area.getCentre();const float radius=diameter*.5f,angle=start+value*(end-start);
-  if(!slider.getProperties().contains("rangeSelector"))for(int i=0;i<=10;++i){float a=start+(end-start)*i/10.f;auto a1=centre+Point<float>(std::sin(a),-std::cos(a))*(radius+4);auto a2=centre+Point<float>(std::sin(a),-std::cos(a))*(radius+6);g.setColour(dim.withAlpha(.8f));g.drawLine({a1,a2},.8f);}
+  if(!slider.getProperties().contains("rangeSelector")&&!slider.getProperties().contains("shapeScale"))for(int i=0;i<=10;++i){float a=start+(end-start)*i/10.f;auto a1=centre+Point<float>(std::sin(a),-std::cos(a))*(radius+4);auto a2=centre+Point<float>(std::sin(a),-std::cos(a))*(radius+6);g.setColour(dim.withAlpha(.8f));g.drawLine({a1,a2},.8f);}
+  if(slider.getProperties().contains("shapeScale")){ // continuous SHAPE: the four landmark waves printed around the knob
+   const char* names[]={"TRI","SAW","SQR","PLS"};g.setFont(face(11.f));
+   for(int i=0;i<4;++i){float a=start+(end-start)*float(i)/3.f;auto p=centre+Point<float>(std::sin(a),-std::cos(a))*(radius+15);
+    g.setColour(std::abs(value*3.f-float(i))<.5f?ink:dim);g.drawText(names[i],Rectangle<float>(p.x-14,p.y-6,28,12),Justification::centred);}
+  }
   if(slider.getProperties().contains("rangeSelector")){
    const char* names[]={"64'","32'","16'","8'","4'","2'"};g.setFont(face(11.f));
    for(int i=0;i<6;++i){float a=start+(end-start)*float(i)/5.f;auto p=centre+Point<float>(std::sin(a),-std::cos(a))*(radius+14);
@@ -617,13 +622,16 @@ private:
 // ---- first row: the playing faders ------------------------------------------------------
  void buildPanelA(){
   using namespace orbitui;
-  auto area=section("JUNO / DCO",amber,{32,panelY,282,panelH});auto cells=split(area,{1,1,1,1,1});
-  const char* dcoIds[]={"wave","width","pwm","sub","noise"};const char* dcoNames[]={"WAVE","WIDTH","PWM","SUB","NOISE"};
-  for(int i=0;i<5;++i)addFader(dcoIds[i],dcoNames[i],0,cells[i].withTrimmedBottom(10));
-  area=section("SOURCE MIX",amber,{320,panelY,238,panelH});cells=split(area,{1,1,1});
-  addFader("jupiterMix","JUPITER",0,cells[0].withTrimmedBottom(26));caption("JUNO",cells[0].withY(area.getBottom()-23).withHeight(17),0,12);
-  addFader("oscLayer","VCO 2",0,cells[1].withTrimmedBottom(26));caption("VCO 1",cells[1].withY(area.getBottom()-23).withHeight(17),0,12);
-  addRowKnob("osc1Level","DCO LEVEL",cells[2]);addRowKnob("vcoPwm","VCO PWM",cells[2].withTrimmedTop(100));
+  // POLY-MOD: two signed sources (filter envelope, VCO 1), three destinations switched on and off.
+  auto area=section("POLY-MOD",amber,{32,panelY,282,panelH});auto cells=split(area,{1,1,1.3f});
+  addFader("polyEnv","FILT ENV",0,cells[0].withTrimmedBottom(10));addFader("polyOsc","VCO 1",0,cells[1].withTrimmedBottom(10));
+  caption("DEST.",cells[2].withHeight(16),0);
+  const char* polyIds[]={"polyFreq","polyWidth","polyFilter"};const char* polyNames[]={"FREQ 2","PW 2","FILTER"};
+  for(int i=0;i<3;++i)printedToggle(polyIds[i],polyNames[i],cells[2].withTrimmedTop(22+i*58).withSizeKeepingCentre(52,45).withY(cells[2].getY()+22+i*58));
+  area=section("MIXER",amber,{320,panelY,238,panelH});cells=split(area,{1,1,1,1.2f});
+  addFader("oscLayer","VCO 2",0,cells[0].withTrimmedBottom(26));caption("VCO 1",cells[0].withY(area.getBottom()-23).withHeight(17),0,12);
+  addFader("vcoSub","SUB",0,cells[1].withTrimmedBottom(10));addFader("vcoNoise","NOISE",0,cells[2].withTrimmedBottom(10));
+  addRowKnob("vcoPwm","VCO PWM",cells[3]);
   area=section("FILTER A",amber,{564,panelY,432,panelH});cells=split(area,{1,1,1,1,1,1,1,2});
   const char* filterIds[]={"hpfFreq","cutoff","resonance","env","lfoFilter","keytrack","velFilter"};const char* filterNames[]={"HPF","FREQ","RES","ENV","LFO","KYBD","VEL"};
   for(int i=0;i<7;++i)addFader(filterIds[i],filterNames[i],0,cells[i].withTrimmedBottom(10));
@@ -640,11 +648,15 @@ private:
  }
  void buildRowTwo(){
   using namespace orbitui;
-  auto osc=section("JUPITER / DUAL VCO",amber,{32,row2Y,560,row2H});
+  auto osc=section("OSCILLATORS",amber,{32,row2Y,560,row2H});
   for(int i=0;i<2;++i){const int y=osc.getY()+i*92;
    caption(i?"VCO 2":"VCO 1",{osc.getX(),y+40,43,22},-1,14);labels.getLast()->setFont(face(17.f,true).withExtraKerningFactor(.04f));labels.getLast()->setMinimumHorizontalScale(.5f); // printed like the rest of the panel
    tagRules.push_back(Rectangle<float>(float(osc.getX()+6),float(y+62),31.f,2.f));                                                 // with a short amber rule under it
-   chipChoice(i?"osc2Shape":"osc1Shape","WAVE",{"SAW","PULSE","TRI","SINE","SQR","NOISE"},{osc.getX()+47,y+8,197,64});
+   // One continuous SHAPE control per VCO: triangle, saw, square, then a narrowing pulse.
+   caption("SHAPE",{osc.getX()+100,y,110,14},-1,12);
+   auto& shape=addControl(i?"vco2Wave":"vco1Wave",Slider::RotaryHorizontalVerticalDrag,{osc.getX()+100,y+14,110,74},-1);
+   shape.slider.getProperties().set("shapeScale",true);shape.slider.getProperties().set("faceDiameter",32.f);
+   shape.slider.setRotaryParameters(MathConstants<float>::pi*1.25f,MathConstants<float>::pi*2.75f,true);
    caption("RANGE",{osc.getX()+251,y,96,14},-1,12);
    auto& range=addControl(i?"osc2Octave":"osc1Octave",Slider::RotaryHorizontalVerticalDrag,{osc.getX()+251,y+14,96,74},-1);
    range.slider.getProperties().set("rangeSelector",true);range.slider.getProperties().set("faceDiameter",32.f);
