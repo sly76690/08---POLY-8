@@ -419,9 +419,9 @@ private:
 
 class Editor : public AudioProcessorEditor, private Timer {
  using APVTS = AudioProcessorValueTreeState;
- enum { designW = 1600, designH = 1110, left = 32, contentW = 1536, gap = 12 };
+ enum { designW = 1600, designH = 1000, left = 32, contentW = 1536, gap = 12 };
  enum { cheek = 26, frameW = designW + 2 * cheek }; // wide wooden end cheeks around the design surface
- enum { headerY = 4, lineY = 104, panelY = 120, panelH = 242, row2Y = 382, row2H = 224, lowerY = 624, lowerH = 120, seqY = 762, seqH = 102, keysY = 874, keysH = 218 }; // Poly 8: a SEQUENCER / PHASER row above the keyboard // Space below effects separates the keyboard from the editing surface.
+ enum { headerY = 4, lineY = 104, panelY = 120, panelH = 242, row2Y = 382, row2H = 224, lowerY = 624, lowerH = 120, keysY = 764, keysH = 218 }; // Space below effects separates the keyboard from the editing surface.
  struct Section { String title; Colour colour; Rectangle<int> area; int page; };
  struct Fader { Slider slider; String id; bool followsLink = false; std::unique_ptr<APVTS::SliderAttachment> attachment; };
  struct Toggle { TextButton button; std::unique_ptr<APVTS::ButtonAttachment> attachment; };
@@ -635,7 +635,7 @@ private:
   area=section("MIXER",steel,{320,panelY,238,panelH});cells=split(area,{1,1,1,1.2f});
   addFader("oscLayer","VCO 2",0,cells[0].withTrimmedBottom(26));caption("VCO 1",cells[0].withY(area.getBottom()-23).withHeight(17),0,12);
   addFader("vcoSub","SUB",0,cells[1].withTrimmedBottom(10));addFader("vcoNoise","NOISE",0,cells[2].withTrimmedBottom(10));
-  addRowKnob("vcoPwm","VCO PWM",cells[3]);
+  addRowKnob("vcoPwm","VCO PWM",cells[3]);addRowKnob("voiceDrive","DRIVE",cells[3].withTrimmedTop(100)); // the voices' drive, before the filters
   area=section("FILTER A",steel,{564,panelY,432,panelH});cells=split(area,{1,1,1,1,1,1,1,2});
   const char* filterIds[]={"hpfFreq","cutoff","resonance","env","lfoFilter","keytrack","velFilter"};const char* filterNames[]={"HPF","FREQ","RES","ENV","LFO","KYBD","VEL"};
   for(int i=0;i<7;++i)addFader(filterIds[i],filterNames[i],0,cells[i].withTrimmedBottom(10));
@@ -693,9 +693,11 @@ private:
   auto routing=section("ROUTING",steel,{1164,row2Y,200,row2H});chipChoice("filterRoute","",{"A","B","A>B","B>A","PAR"},routing.withHeight(65));
   caption("PRESSURE",routing.withTrimmedTop(80).withHeight(15),-1,12);
   cells=split(routing.withTrimmedTop(100),{1,1,1,1});compactKnob("atFilter","FILTER",cells[0]);compactKnob("atVolume","AMP",cells[1]);compactKnob("atLfo","LFO",cells[2]);compactKnob("atDrive","DRIVE",cells[3]);
-  auto chorus=section("CHORUS",teal,{1370,row2Y,198,row2H});chipChoice("chorusMode","",{"OFF","I","II","I+II"},chorus.withHeight(65));
-  caption("DRIVE",chorus.withTrimmedTop(80).withTrimmedLeft(60).withHeight(15),-1,12);
-  cells=split(chorus.withTrimmedTop(100),{1,1,1});compactKnob("chorus","MIX",cells[0]);compactKnob("voiceDrive","PRE",cells[1]);compactKnob("fxDrive","POST",cells[2]);
+  // EFFECTS: the chorus (mode and MIX), the PHASER after it, and the output DRIVE.
+  auto fx=section("EFFECTS",teal,{1370,row2Y,198,row2H});chipChoice("chorusMode","CHORUS",{"OFF","I","II","I+II"},fx.withHeight(58));
+  cells=split(fx.withTrimmedTop(62).withHeight(58),{1,1,1,1});compactKnob("chorus","CH MIX",cells[0]);
+  printedToggle("phaserOn","PHASER",cells[1].withTrimmedTop(8));compactKnob("phaserRate","RATE",cells[2]);compactKnob("phaserDepth","DEPTH",cells[3]);
+  cells=split(fx.withTrimmedTop(124).withHeight(58),{1,1,1,1});compactKnob("phaserFeedback","FDBK",cells[1]);compactKnob("phaserMix","PH MIX",cells[2]);compactKnob("fxDrive","DRIVE",cells[3]);
  }
  void buildLowerRow(){
   using namespace orbitui;
@@ -704,9 +706,13 @@ private:
   compactKnob("age","AGE",cells[2]);compactKnob("voiceWidth","WIDTH",cells[3]);chipChoice("vcaMode","VCA",{"ENV","GATE","F.ENV"},cells[4].withHeight(79),true);switches.getLast()->setLever();printedToggle("hold","HOLD",cells[5].withTrimmedTop(18).expanded(6,0).withRight(area.getRight()+4));
   area=section("GLIDE",teal,{338,lowerY,180,lowerH});cells=split(area,{1,1,1,1});
   compactKnob("portamento","PORTA",cells[0]);compactKnob("bendRange","BEND",cells[1]);compactKnob("unisonSpread","SPREAD",cells[2]);printedToggle("legato","LEGATO",cells[3].withTrimmedTop(18));
-  area=section("ARPEGGIO",teal,{524,lowerY,340,lowerH});cells=split(area,{.6f,.7f,3.3f,.9f,.75f,1.f,1.f});
-  printedToggle("arpOn","ON",cells[0].withTrimmedTop(18));printedToggle("arpSync","SYNC",cells[1].withTrimmedTop(18));chipChoice("arpPattern","",{"UP","DOWN","U&D","RND","SEQ"},cells[2].withHeight(65));
+  area=section("ARPEGGIO / SEQUENCER",teal,{524,lowerY,340,lowerH});cells=split(area,{.75f,.85f,1.15f,1.f,1.f,1.f,1.f,.85f,.85f,.85f});
+  printedToggle("arpOn","ON",cells[0].withTrimmedTop(18));printedToggle("arpSync","SYNC",cells[1].withTrimmedTop(18));menuChoice("arpPattern","MODE",cells[2]);
   menuChoice("arpDivision","STEP",cells[3]);menuChoice("arpOctaves","OCT",cells[4]);compactKnob("arpTempo","TEMPO",cells[5]);compactKnob("arpGate","GATE",cells[6]);
+  // SEQUENCER keys: REC, then play one note or chord per step (REST for a silent step); PLAY, then hold a key to transpose.
+  printedToggle("seqRec","REC",cells[7].withTrimmedTop(18));printedToggle("seqRest","REST",cells[8].withTrimmedTop(18));printedToggle("seqPlay","PLAY",cells[9].withTrimmedTop(18));
+  restKey=&toggles[toggles.size()-2]->button;restKey->setClickingTogglesState(false); // REST is a momentary key
+  restKey->onStateChange=[this]{const bool down=restKey->isDown();if(down==restDown)return;restDown=down;auto* p=orbit.state.getParameter("seqRest");p->beginChangeGesture();p->setValueNotifyingHost(down?1.f:0.f);p->endChangeGesture();};
   area=section("DELAY",teal,{870,lowerY,230,lowerH});cells=split(area,{1,1,1,1,.75f,.9f});
   compactKnob("delayTime","TIME",cells[0]);delayTimeKnob=&faders.getLast()->slider;
   compactKnob("delayFeedback","FDBK",cells[1]);compactKnob("delayMod","MOD",cells[2]);compactKnob("delayMix","LEVEL",cells[3]);printedToggle("delayOn","ON",cells[4].withTrimmedTop(18));
@@ -715,23 +721,7 @@ private:
   area=section("REVERB",teal,{1106,lowerY,300,lowerH});cells=split(area,{2.3f,1,1,1,1,.8f});
   chipChoice("reverbType","",{"VINT","PLATE","SPACE"},cells[0].withHeight(65));compactKnob("reverbSize","SIZE",cells[1]);compactKnob("reverbDamp","DAMP",cells[2]);compactKnob("reverbColor","COLOR",cells[3]);compactKnob("reverbMix","LEVEL",cells[4]);printedToggle("reverbOn","ON",cells[5].withTrimmedTop(18));
   area=section("OUTPUT",teal,{1412,lowerY,156,lowerH});cells=split(area,{1,1});compactKnob("gain","VOLUME",cells[0]);compactKnob("masterTune","TUNE",cells[1]);
-  buildSequencerRow();
  }
- // SEQUENCER: played by the arpeggiator when its pattern is SEQ (ON, tempo, STEP and GATE come from ARPEGGIO). Each step
- // has an interval (semitones from the held keys) and a key that turns it into a rest. PHASER: after the chorus.
- void buildSequencerRow(){
-  using namespace orbitui;
-  auto area=section("SEQUENCER   -   ARPEGGIO PATTERN SEQ",steel,{32,seqY,1230,seqH});
-  auto cells=split(area,{1.1f,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1});
-  compactKnob("seqLength","LENGTH",cells[0]);
-  for(int i=0;i<16;++i){const auto cell=cells[size_t(i+1)];
-   compactKnob(("seqT"+String(i+1)).toRawUTF8(),String(i+1).toRawUTF8(),cell.withWidth(cell.getWidth()-22));
-   addToggle(("seqOn"+String(i+1)).toRawUTF8(),{},-1,Rectangle<int>(cell.getRight()-24,cell.getY()+28,22,22),1,neutral);}
-  area=section("PHASER",teal,{1268,seqY,300,seqH});cells=split(area,{.8f,1,1,1,1});
-  printedToggle("phaserOn","ON",cells[0].withTrimmedTop(10));compactKnob("phaserRate","RATE",cells[1]);compactKnob("phaserDepth","DEPTH",cells[2]);
-  compactKnob("phaserFeedback","FDBK",cells[3]);compactKnob("phaserMix","MIX",cells[4]);
- }
-
  void buildKeyboard() {
   using namespace orbitui;
   addButton(octDown, "OCT -", {left + 96, keysY + 64, 68, 28}, neutral, 0); addButton(octUp, "OCT +", {left + 96, keysY + 36, 68, 28}, neutral, 0);
@@ -909,6 +899,9 @@ private:
   const String line = (sound.isNotEmpty() ? (CinematicBank::contains(sound) ? String("MIDNIGHT SIGNALS") : String("SOUND")) : user ? String("USER") : "BANK " + String::charToString(juce_wchar('A' + program / 8)) + " / " + String(program % 8 + 1)) + (eight ? "    8 VOICES" : "    6 VOICES") + (orbit.isPatchModified() ? "    EDITED" : "");
   midiButton.setToggleState(orbit.isLearning(), dontSendNotification);
   String shown = line;
+  const int steps = orbit.sequenceLength();
+  if (orbit.state.getRawParameterValue("seqRec")->load() > .5f) shown = "SEQ REC    STEP " + String(steps + 1) + " / 64    REST = SILENCE";
+  else if (orbit.state.getRawParameterValue("seqPlay")->load() > .5f) shown = "SEQ PLAY    " + String(steps) + " STEPS    HOLD A KEY";
   if (orbit.isLearning()) { const int touched = orbit.lastTouchedParameter();
    shown = touched < 0 ? String("MIDI LEARN    TOUCH A CONTROL") : "MIDI LEARN    " + orbit.getParameters()[touched]->getName(14).toUpperCase() + "  <  MOVE A CC"; }
   if (shown != displayLine) { displayLine = shown; surface.repaint(510, 22, 344, 30); }
@@ -939,7 +932,7 @@ private:
  // A clickable wave name around a SHAPE knob.
  struct ShapeStop : Component { ShapeStop(Slider& s,float v):slider(s),value(v){setMouseCursor(MouseCursor::PointingHandCursor);setRepaintsOnMouseActivity(false);}
   void mouseDown(const MouseEvent&) override {slider.setValue(value,sendNotificationSync);} Slider& slider;float value; };
- OwnedArray<ShapeStop> shapeStops;
+ OwnedArray<ShapeStop> shapeStops;Button* restKey=nullptr;bool restDown=false;
  std::vector<Rectangle<float>> tagRules; OwnedArray<PanelChoice> panelChoices; OwnedArray<Label> labels; OwnedArray<Fader> faders; OwnedArray<Toggle> toggles; OwnedArray<ChoiceButtons> choices; OwnedArray<WaveKnob> waveKnobs; OwnedArray<SlideSwitch> switches; OwnedArray<ChoiceMenuButton> menuButtons; Slider* delayTimeKnob = nullptr;
  struct Sync { std::unique_ptr<SyncKey> key; std::unique_ptr<SyncKnob> knob; Slider* free = nullptr; Label* value = nullptr; const char* id = ""; bool wasSynced = true; };
  OwnedArray<Sync> syncs;

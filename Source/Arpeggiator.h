@@ -1,10 +1,22 @@
 #pragma once
 // Sample-clock arpeggiator. Held keys retain their MIDI channels and velocities.
-// Pattern 4 (SEQ) is a 16-step sequencer: at each step every held key sounds, transposed by that step's interval,
-// or the step is a rest. Hold a single key for a line, a chord for a chord sequence.
+// Pattern 4 (SEQ) plays a recorded sequence: up to 64 steps, each a chord of up to 8 notes or a rest. The lowest held
+// key transposes it, relative to the lowest note of its first step (root).
 class Arpeggiator {
 public:
- struct Sequence { int length=16; std::array<int,16> transpose{}; std::array<bool,16> on{}; };
+ struct Sequence {
+  static constexpr int maxSteps=64,maxNotes=8;
+  int length=0,root=60; std::array<std::array<int,maxNotes>,maxSteps> notes{}; std::array<int,maxSteps> count{}; // count 0 = rest
+  void clear(){length=0;root=60;count.fill(0);}
+  bool add(const int* chord,int n){if(length>=maxSteps)return false;n=juce::jlimit(0,maxNotes,n);for(int i=0;i<n;++i)notes[size_t(length)][size_t(i)]=chord[i];
+   count[size_t(length)]=n;if(n>0&&!hasNotes())root=*std::min_element(chord,chord+n);++length;return true;}
+  bool hasNotes() const {for(int i=0;i<length;++i)if(count[size_t(i)]>0)return true;return false;}
+  // Text form kept with the patch: steps separated by ';', notes by ',', a rest is 'r'.
+  juce::String toString() const {juce::StringArray steps;for(int i=0;i<length;++i){if(count[size_t(i)]==0){steps.add("r");continue;}
+   juce::StringArray n;for(int k=0;k<count[size_t(i)];++k)n.add(juce::String(notes[size_t(i)][size_t(k)]));steps.add(n.joinIntoString(","));}return steps.joinIntoString(";");}
+  void fromString(const juce::String& text){clear();for(const auto& step:juce::StringArray::fromTokens(text,";","")){if(step.trim().isEmpty())continue;
+   int chord[maxNotes];int n=0;if(step.trim()!="r")for(const auto& v:juce::StringArray::fromTokens(step,",",""))if(n<maxNotes)chord[n++]=juce::jlimit(0,127,v.getIntValue());add(chord,n);}}
+ };
  void prepare(double rate) {sr=rate;output.ensureSize(32768);reset();}
  void reset(){held.fill(0);heldCount=0;remaining=gate=0;activeCount=0;step=0;wasEnabled=false;}
  // samplesToGrid: when >= 0, the number of samples from the start of this block to the next step of the host's
@@ -35,12 +47,12 @@ public:
    if(activeCount>0 && --gate<=0) stop(sample);
    if(remaining--<=0) {
     stop(sample);int count=0;
-    if(pattern==4&&sequence!=nullptr){ // SEQ: every held key, transposed by this step; a step switched off is a rest
-     const int index=step%juce::jlimit(1,16,sequence->length);
-     if(sequence->on[size_t(index)])
-      for(int key=0;key<2048&&activeCount<int(activeNotes.size());++key)if(held[size_t(key)]>0){
-       const int note=juce::jlimit(0,127,key%128+sequence->transpose[size_t(index)]);activeNotes[size_t(activeCount++)]=(key/128)*128+note;
-       output.addEvent(juce::MidiMessage::noteOn(key/128+1,note,held[size_t(key)]),sample);}
+    if(pattern==4&&sequence!=nullptr&&sequence->length>0){ // SEQ: the recorded step, moved by the lowest held key
+     int lowest=-1;float velocity=0;for(int key=0;key<2048;++key)if(held[size_t(key)]>0&&(lowest<0||key%128<lowest%128)){lowest=key;velocity=held[size_t(key)];}
+     const int index=step%sequence->length,shift=lowest%128-sequence->root,channel=lowest/128;
+     for(int k=0;k<sequence->count[size_t(index)]&&activeCount<int(activeNotes.size());++k){
+      const int note=juce::jlimit(0,127,sequence->notes[size_t(index)][size_t(k)]+shift);activeNotes[size_t(activeCount++)]=channel*128+note;
+      output.addEvent(juce::MidiMessage::noteOn(channel+1,note,velocity),sample);}
      step=(step+1)%1000000;gate=juce::jmax(1,int(interval*gateRatio));remaining=interval-1;continue;
     }
     for(int octave=0;octave<octaves;++octave) for(int n=0;n<128;++n) for(int ch=0;ch<16;++ch) {

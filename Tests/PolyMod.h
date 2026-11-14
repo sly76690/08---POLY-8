@@ -17,7 +17,7 @@ static bool polyModTests(){
   OscillatorBank bank;bank.setVoiceIndex(2);bank.prepare(48000);bank.configure(s,true);std::vector<float> r;r.reserve(size_t(length));
   for(int i=0;i<length;++i)r.push_back(bank.process(220,0,0,0,filterEnvelope));return r;};
  auto diff=[](const std::vector<float>& a,const std::vector<float>& b){double d=0;for(size_t i=0;i<a.size();++i)d+=std::abs(a[i]-b[i]);return d/double(a.size());};
- auto require=[](bool ok,const char* what){if(!ok)std::cerr<<"Poly-mod: "<<what<<"\n";return ok;};
+ auto require=[](bool ok,const juce::String& what){if(!ok)std::cerr<<"Poly-mod: "<<what<<"\n";return ok;};
  Settings base;base.blend=1;base.age=0;base.shape1=base.shape2=6;base.sourceMix=.5f;
  // SHAPE: every quarter of the travel sounds different, small moves stay small (no jump between regions).
  std::vector<std::vector<float>> shapes;for(float m:{0.f,.33f,.66f,1.f}){auto s=base;s.morph1=s.morph2=m;shapes.push_back(render(s));}
@@ -64,18 +64,30 @@ static bool polyModTests(){
  {std::unique_ptr<juce::AudioProcessor> q(createPluginFilter());for(auto* b:q->getParameters())if(auto* r=dynamic_cast<juce::RangedAudioParameter*>(b))if(r->paramID=="vco1Wave"){
    const auto& range=r->getNormalisableRange();
    if(!require(std::abs(range.snapToLegalValue(.35f)-1.f/3.f)<1.e-6f&&std::abs(range.snapToLegalValue(.98f)-1.f)<1.e-6f&&std::abs(range.snapToLegalValue(.5f)-.5f)<1.e-6f,"SHAPE detents"))return false;}}
- // SEQUENCER: intervals per step, rests, the length, and chords (every held key moves together).
- {auto run=[](std::vector<int> keys){Arpeggiator arp;arp.prepare(48000);Arpeggiator::Sequence seq;seq.length=4;seq.transpose={0,7,12,-5};seq.on.fill(true);seq.on[2]=false;
-   std::vector<std::vector<int>> steps;int last=-1;
-   for(int b=0;b<200;++b){juce::MidiBuffer m;if(b==0)for(int k:keys)m.addEvent(juce::MidiMessage::noteOn(1,k,.8f),0);
-    arp.process(m,512,true,120,2,4,1,.5f,-1.,&seq);
-    for(const auto meta:m){const auto msg=meta.getMessage();if(!msg.isNoteOn())continue;const int at=b*512+meta.samplePosition;
-     if(at!=last){steps.push_back({});last=at;}steps.back().push_back(msg.getNoteNumber());}}
-   return steps;};
-  const auto line=run({60});const std::vector<int> expected{60,67,55,60,67,55};
-  if(!require(line.size()>=6,"sequencer plays too few steps"))return false;
-  for(size_t i=0;i<expected.size();++i)if(!require(line[i].size()==1&&line[i][0]==expected[i],"sequencer intervals, rest or length wrong"))return false;
-  const auto chord=run({60,64});if(!require(chord.size()>=3&&chord[1].size()==2&&chord[1][0]==67&&chord[1][1]==71,"sequencer does not move a chord"))return false;}
+ // SEQUENCER playback: recorded chords and rests, moved by the lowest held key (relative to the first step's lowest note).
+ {Arpeggiator::Sequence seq;const int a[]={60},b[]={64,67},c[]={62};seq.add(a,1);seq.add(b,2);seq.add(nullptr,0);seq.add(c,1);
+  if(!require(seq.root==60&&seq.length==4&&seq.toString()=="60;64,67;r;62","sequence text form"))return false;
+  Arpeggiator::Sequence back;back.fromString(seq.toString());if(!require(back.toString()==seq.toString()&&back.root==60,"sequence does not read back"))return false;
+  Arpeggiator arp;arp.prepare(48000);std::vector<std::vector<int>> steps;int last=-1;
+  for(int blk=0;blk<200;++blk){juce::MidiBuffer m;if(blk==0)m.addEvent(juce::MidiMessage::noteOn(1,62,.8f),0);
+   arp.process(m,512,true,120,2,4,1,.5f,-1.,&seq);
+   for(const auto meta:m){const auto msg=meta.getMessage();if(!msg.isNoteOn())continue;const int at=blk*512+meta.samplePosition;if(at!=last){steps.push_back({});last=at;}steps.back().push_back(msg.getNoteNumber());}}
+  const std::vector<std::vector<int>> expected{{62},{66,69},{64},{62},{66,69},{64}}; // the rest gives no note
+  if(!require(steps.size()>=expected.size(),"sequencer plays too few steps"))return false;
+  for(size_t k=0;k<expected.size();++k)if(!require(steps[k]==expected[k],"sequencer chords, rest or transposition wrong"))return false;}
+ // SEQUENCER recording through the plugin: REC, a note, a chord, REST, a note; the sequence is saved with the patch.
+ {std::unique_ptr<juce::AudioProcessor> q(createPluginFilter());q->setRateAndBufferSizeDetails(48000,256);q->prepareToPlay(48000,256);
+  auto set=[&](const char* id,float v){for(auto* b:q->getParameters())if(auto* r=dynamic_cast<juce::RangedAudioParameter*>(b))if(r->paramID==id)r->setValueNotifyingHost(v);};
+  auto block=[&](std::initializer_list<juce::MidiMessage> msgs){juce::AudioBuffer<float> b(2,256);b.clear();juce::MidiBuffer m;int at=0;for(auto& msg:msgs)m.addEvent(msg,at++);q->processBlock(b,m);};
+  set("seqRec",1);block({});
+  block({juce::MidiMessage::noteOn(1,60,.8f)});block({juce::MidiMessage::noteOff(1,60)});
+  block({juce::MidiMessage::noteOn(1,64,.8f),juce::MidiMessage::noteOn(1,67,.8f)});block({juce::MidiMessage::noteOff(1,67)});block({juce::MidiMessage::noteOff(1,64)});
+  set("seqRest",1);block({});set("seqRest",0);block({});
+  block({juce::MidiMessage::noteOn(1,62,.8f)});block({juce::MidiMessage::noteOff(1,62)});set("seqRec",0);block({});
+  juce::MemoryBlock data;q->getStateInformation(data);auto xml=juce::AudioProcessor::getXmlFromBinary(data.getData(),int(data.getSize()));
+  if(!require(xml&&xml->getStringAttribute("sequence")=="60;64,67;r;62","sequencer recording wrong: "+(xml?xml->getStringAttribute("sequence"):juce::String())))return false;
+  std::unique_ptr<juce::AudioProcessor> r(createPluginFilter());r->setStateInformation(data.getData(),int(data.getSize()));juce::MemoryBlock again;r->getStateInformation(again);
+  auto xml2=juce::AudioProcessor::getXmlFromBinary(again.getData(),int(again.getSize()));if(!require(xml2&&xml2->getStringAttribute("sequence")=="60;64,67;r;62","sequence not restored with the session"))return false;}
  // PHASER: heard when on, transparent when off.
  {const auto off=plug({{"phaserOn",0},{"cutoff",8000}}),on=plug({{"phaserOn",1},{"phaserMix",1},{"cutoff",8000}});
   if(!require(diff(off,on)>.001,"phaser inactive"))return false;for(float v:on)if(!require(std::isfinite(v)&&std::abs(v)<4.f,"phaser unstable"))return false;}

@@ -26,7 +26,7 @@ public:
  Orbit() : AudioProcessor(BusesProperties().withOutput("Stereo",AudioChannelSet::stereo(),true)), state(*this,nullptr,"OrbitState",parameters()), voices8(state,true), voices6(state,true) {
   for(int i=0;i<8;++i){auto* voice=new Voice(state,previousEight,modulation);voice->setVoiceIndex(i);voice->setVintage(true);voices8.addVoice(voice);} voices8.addSound(new Sound()); voices8.setNoteStealingEnabled(true);
   for(int i=0;i<6;++i){auto* voice=new Voice(state,previousSix,modulation);voice->setVoiceIndex(i);voices6.addVoice(voice);} voices6.addSound(new Sound());voices6.setNoteStealingEnabled(true);
-  for(size_t i=0;i<16;++i){seqInterval[i]=state.getRawParameterValue("seqT"+String(int(i)+1));seqOn[i]=state.getRawParameterValue("seqOn"+String(int(i)+1));}
+  recordHeld.ensureStorageAllocated(128);recordChord.ensureStorageAllocated(128); // no allocation on the audio thread while recording
   for(auto* param:getParameters()) if(auto* identified=dynamic_cast<AudioProcessorParameterWithID*>(param)) state.addParameterListener(identified->paramID,this);
   state.state.setProperty("stateVersion",5,nullptr);
   for(auto& slot:ccTarget)slot.store(-1);addListener(this);
@@ -43,9 +43,12 @@ public:
  Result loadSound(const String& name){auto xml=CinematicBank::load(name);if(!xml)xml=PresetStorage(presetRoot(),"Sounds").load(name);if(!xml)xml=PresetStorage(sharedRoot(),"Sounds").load(name);if(!xml)return Result::fail("Son absent ou invalide dans Presets/Sounds.");
   MemoryBlock data;copyXmlToBinary(*xml,data);setStateInformation(data.getData(),int(data.getSize()));state.state.removeProperty("userPresetName",nullptr);state.state.setProperty("soundName",name,nullptr);modified.store(false);return Result::ok();}
  bool userPresetExists(const String& name) const {return PresetStorage(presetRoot()).exists(name);}
- Result saveUserPreset(const String& name,bool replace=false){auto saved=state.copyState();saved.setProperty("program",currentProgram.load(),nullptr);saved.setProperty("modified",false,nullptr);saved.setProperty("userPresetName",name,nullptr);saved.removeProperty("soundName",nullptr);auto xml=saved.createXml();auto result=PresetStorage(presetRoot()).save(name,*xml,replace);if(result.wasOk()){state.state.setProperty("userPresetName",name,nullptr);state.state.removeProperty("soundName",nullptr);modified.store(false);}return result;}
+ Result saveUserPreset(const String& name,bool replace=false){auto saved=state.copyState();saved.setProperty("sequence",sequenceText(),nullptr);saved.setProperty("program",currentProgram.load(),nullptr);saved.setProperty("modified",false,nullptr);saved.setProperty("userPresetName",name,nullptr);saved.removeProperty("soundName",nullptr);auto xml=saved.createXml();auto result=PresetStorage(presetRoot()).save(name,*xml,replace);if(result.wasOk()){state.state.setProperty("userPresetName",name,nullptr);state.state.removeProperty("soundName",nullptr);modified.store(false);}return result;}
  Result loadUserPreset(const String& name){auto xml=PresetStorage(presetRoot()).load(name);if(!xml)return Result::fail("Preset absent, invalide ou inaccessible dans Presets/User.");MemoryBlock data;copyXmlToBinary(*xml,data);setStateInformation(data.getData(),int(data.getSize()));state.state.removeProperty("soundName",nullptr);state.state.setProperty("userPresetName",name,nullptr);modified.store(false);return Result::ok();}
  bool isPatchModified() const {return modified.load();}
+ String sequenceText(){const SpinLock::ScopedLockType lock(sequenceLock);return sequence.toString();}
+ int sequenceLength() const {return sequenceSteps.load();}
+ std::atomic<int> sequenceSteps{0};
   // Host pages of eight, in the order of the front panel.
   static constexpr const char* hostPages[]={
    "polyEnv","polyOsc","polyFreq","polyWidth","polyFilter","oscLayer","vcoSub","vcoNoise",      // POLY-MOD, MIXER
@@ -61,14 +64,12 @@ public:
    "delayTime","delaySync","delayFeedback","delayMod","delayMix","reverbOn","reverbType","reverbSize", // DELAY, REVERB
    "reverbDamp","reverbColor","reverbMix","lfoManual","lfoTrig","atVolume","atLfo","atDrive",
    "osc2Tune","oscSync","vco2Low","vcoPwm",
-   "phaserOn","phaserRate","phaserDepth","phaserFeedback","phaserMix","seqLength",                   // PHASER, SEQUENCER
-   "seqT1","seqT2","seqT3","seqT4","seqT5","seqT6","seqT7","seqT8","seqT9","seqT10","seqT11","seqT12","seqT13","seqT14","seqT15","seqT16",
-   "seqOn1","seqOn2","seqOn3","seqOn4","seqOn5","seqOn6","seqOn7","seqOn8","seqOn9","seqOn10","seqOn11","seqOn12","seqOn13","seqOn14","seqOn15","seqOn16",
+   "phaserOn","phaserRate","phaserDepth","phaserFeedback","phaserMix","seqRec","seqRest","seqPlay",  // PHASER, SEQUENCER
    "osc1Shape","osc2Shape","wave","width","pwm","sub","noise","osc1Level","jupiterMix"}; // fixed shapes and the DCO, kept for old patches                                        // REVERB, EXPRESSION
   // Short names for the host and controller displays (Push shows about a dozen characters).
   static String label(const String& id,const String& longName){
    static const std::map<String,String> names{
-    {"jupiterMix","DCO/VCO"},{"phaserOn","Phaser On"},{"phaserRate","Ph Rate"},{"phaserDepth","Ph Depth"},{"phaserFeedback","Ph Fdbk"},{"phaserMix","Ph Mix"},{"seqLength","Seq Length"},{"vco1Wave","VCO1 Shape"},{"vco2Wave","VCO2 Shape"},{"vcoSub","VCO Sub"},{"vcoNoise","VCO Noise"},{"polyEnv","PM Env"},{"polyOsc","PM Osc1"},{"polyFreq","PM>Freq2"},{"polyWidth","PM>PW2"},{"polyFilter","PM>Filter"},{"vcoPwm","VCO PWM"},{"vco1Width","VCO1 Width"},{"vco2Low","VCO2 Low"},{"wave","DCO SawPls"},{"width","DCO Width"},{"pwm","DCO PWM"},{"sub","Sub Level"},{"noise","Noise"},{"osc1Shape","VCO1 Wave"},{"osc1Octave","VCO1 Range"},{"osc1Level","DCO Level"},
+    {"jupiterMix","DCO/VCO"},{"phaserOn","Phaser On"},{"phaserRate","Ph Rate"},{"phaserDepth","Ph Depth"},{"phaserFeedback","Ph Fdbk"},{"phaserMix","Ph Mix"},{"vco1Wave","VCO1 Shape"},{"vco2Wave","VCO2 Shape"},{"vcoSub","VCO Sub"},{"vcoNoise","VCO Noise"},{"polyEnv","PM Env"},{"polyOsc","PM Osc1"},{"polyFreq","PM>Freq2"},{"polyWidth","PM>PW2"},{"polyFilter","PM>Filter"},{"vcoPwm","VCO PWM"},{"vco1Width","VCO1 Width"},{"vco2Low","VCO2 Low"},{"wave","DCO SawPls"},{"width","DCO Width"},{"pwm","DCO PWM"},{"sub","Sub Level"},{"noise","Noise"},{"osc1Shape","VCO1 Wave"},{"osc1Octave","VCO1 Range"},{"osc1Level","DCO Level"},
     {"oscLayer","Source Mix"},{"osc2Width","VCO2 Width"},{"osc2Tune","VCO2 Tune"},{"detune","VCO2 Fine"},{"osc2Shape","VCO2 Wave"},{"osc2Octave","VCO2 Range"},{"oscSync","VCO2 Sync"},{"crossMod","X-Mod"},
     {"cutoff","A Freq"},{"resonance","A Reso"},{"env","A Env"},{"keytrack","Filter Kybd"},{"lfoFilter","Filter LFO"},{"hpfFreq","HPF"},{"slope","A Slope"},{"filterAType","A Model"},
     {"attack","Amp Attack"},{"decay","Amp Decay"},{"sustain","Amp Sustain"},{"release","Amp Release"},{"velocity","Velocity"},{"vcaMode","VCA Mode"},{"portamento","Portamento"},{"legato","Legato"},
@@ -127,7 +128,7 @@ public:
   keep(std::make_unique<AudioParameterBool>(ParameterID{"arpSync",1},label("arpSync","Host tempo"),false));
   add("arpTempo","Arp tempo",40,300,120);add("arpGate","Arp gate",0.1f,0.95f,0.65f);
   keep(std::make_unique<AudioParameterChoice>(ParameterID{"arpDivision",1},label("arpDivision","Arp division"),StringArray{"1/4","1/8","1/16","1/32"},1));
-  keep(std::make_unique<AudioParameterChoice>(ParameterID{"arpPattern",1},label("arpPattern","Arp pattern"),StringArray{"UP","DOWN","UP/DOWN","RANDOM","SEQUENCE"},0));
+  keep(std::make_unique<AudioParameterChoice>(ParameterID{"arpPattern",1},label("arpPattern","Arp pattern"),StringArray{"UP","DOWN","UP/DOWN","RANDOM"},0));
   keep(std::make_unique<AudioParameterChoice>(ParameterID{"arpOctaves",1},label("arpOctaves","Arp octaves"),StringArray{"1 OCT","2 OCT","3 OCT"},0));
   add("fxDrive","Drive",0,1,0);add("delayTime","Delay time (s)",0.03f,1.5f,0.3f);add("delayFeedback","Delay feedback",0,1.1f,0.3f);add("delayMod","Delay modulation",0,1,0.3f);add("delayMix","Delay mix",0,0.65f,0);
   add("reverbSize","Reverb size",0,1,0.5f);add("reverbDamp","Reverb damping",0,1,0.5f);add("reverbMix","Reverb mix",0,0.65f,0);add("reverbColor","Reverb color",0,1,0.4f);
@@ -143,12 +144,13 @@ public:
   add("polyEnv","Poly-mod filter envelope",-1,1,0);add("polyOsc","Poly-mod VCO 1",-1,1,0);
   keep(std::make_unique<AudioParameterBool>(ParameterID{"polyFreq",1},label("polyFreq","Poly-mod to VCO 2 frequency"),true));
   keep(std::make_unique<AudioParameterBool>(ParameterID{"polyWidth",1},label("polyWidth","Poly-mod to VCO 2 pulse width"),false));
-  // PHASER (after the chorus) and the 16-step SEQUENCER (arpeggio pattern SEQ: interval and on/off per step).
+  // PHASER (after the chorus).
   keep(std::make_unique<AudioParameterBool>(ParameterID{"phaserOn",1},label("phaserOn","Phaser on"),false));
   add("phaserRate","Phaser rate (Hz)",.05f,5,.35f,.4f);add("phaserDepth","Phaser depth",0,1,.6f);add("phaserFeedback","Phaser feedback",0,.85f,.45f);add("phaserMix","Phaser mix",0,1,.5f);
-  keep(std::make_unique<AudioParameterInt>(ParameterID{"seqLength",1},label("seqLength","Sequence length"),1,16,16));
-  for(int i=1;i<=16;++i){keep(std::make_unique<AudioParameterInt>(ParameterID{"seqT"+String(i),1},"Step "+String(i)+" Int",-24,24,0));
-   keep(std::make_unique<AudioParameterBool>(ParameterID{"seqOn"+String(i),1},"Step "+String(i)+" On",true));}
+  // SEQUENCER: REC (then play notes or chords, one step each), REST (a silent step while recording), PLAY.
+  keep(std::make_unique<AudioParameterBool>(ParameterID{"seqRec",1},label("seqRec","Seq Record"),false));
+  keep(std::make_unique<AudioParameterBool>(ParameterID{"seqRest",1},label("seqRest","Seq Rest"),false));
+  keep(std::make_unique<AudioParameterBool>(ParameterID{"seqPlay",1},label("seqPlay","Seq Play"),false));
   keep(std::make_unique<AudioParameterBool>(ParameterID{"polyFilter",1},label("polyFilter","Poly-mod to filters"),false));
   add("osc1Level","Oscillator I level",0,1,1);add("osc2Width","Oscillator II pulse width",.08f,.92f,.5f);
   choice("osc1Octave","VCO 1 range",{"64'","32'","16'","8'","4'","2'"},3);
@@ -279,9 +281,18 @@ public:
     samplesToGrid=(into<halfSample||step-into<halfSample)?0.:(step-into)*60./bpm*sampleRate;
    }
   }
-  for(size_t i=0;i<16;++i){sequence.transpose[i]=int(seqInterval[i]->load());sequence.on[i]=seqOn[i]->load()>.5f;} // read without building names on the audio thread
-  sequence.length=int(value("seqLength"));
-  arp.process(midi,buffer.getNumSamples(),value("arpOn")>.5f,bpm,division,int(value("arpPattern")),int(value("arpOctaves"))+1,value("arpGate"),samplesToGrid,&sequence);
+  // SEQUENCER. REC (from off to on) starts a new sequence; each time every key is up again, the keys pressed since
+  // become one step. REST adds a silent step. PLAY runs the arpeggiator clock over the sequence instead of the pattern.
+  const bool recording=value("seqRec")>.5f,rest=value("seqRest")>.5f,playing=value("seqPlay")>.5f&&!recording;
+  {const SpinLock::ScopedLockType lock(sequenceLock);
+   if(recording&&!wasRecording){sequence.clear();recordHeld.clearQuick();recordChord.clearQuick();}
+   if(recording){for(const auto meta:midi){const auto msg=meta.getMessage();
+     if(msg.isNoteOn()){recordHeld.addIfNotAlreadyThere(msg.getNoteNumber());recordChord.addIfNotAlreadyThere(msg.getNoteNumber());}
+     else if(msg.isNoteOff()){recordHeld.removeFirstMatchingValue(msg.getNoteNumber());
+      if(recordHeld.isEmpty()&&!recordChord.isEmpty()){recordChord.sort();sequence.add(recordChord.getRawDataPointer(),recordChord.size());recordChord.clearQuick();}}}
+    if(rest&&!wasResting&&recordHeld.isEmpty())sequence.add(nullptr,0);}
+   wasRecording=recording;wasResting=rest;sequenceSteps.store(sequence.length);
+   arp.process(midi,buffer.getNumSamples(),value("arpOn")>.5f||playing,bpm,division,playing?4:int(value("arpPattern")),int(value("arpOctaves"))+1,value("arpGate"),samplesToGrid,&sequence);}
   int mode=state.getRawParameterValue("mode")->load()>0.5f?1:0;
   voices8.updateMode();voices6.updateMode();
   if(mode!=lastMode) {voices8.allNotesOff(0,false);voices6.allNotesOff(0,false);lastMode=mode;}
@@ -324,7 +335,7 @@ public:
   for(int i=0;i<buffer.getNumSamples();++i) {float g=gain.getNextValue();for(int c=0;c<buffer.getNumChannels();++c) buffer.setSample(c,i,limit(buffer.getSample(c,i)*g));}
  }
  bool hasEditor() const override {return true;} AudioProcessorEditor* createEditor() override;
- void getStateInformation(MemoryBlock& dest) override {auto saved=state.copyState();saved.setProperty("program",currentProgram.load(),nullptr);saved.setProperty("modified",modified.load(),nullptr);auto xml=saved.createXml();
+ void getStateInformation(MemoryBlock& dest) override {auto saved=state.copyState();saved.setProperty("sequence",sequenceText(),nullptr);saved.setProperty("program",currentProgram.load(),nullptr);saved.setProperty("modified",modified.load(),nullptr);auto xml=saved.createXml();
   auto* map=xml->createNewChildElement("MidiMap");for(int cc=0;cc<128;++cc)if(const int index=ccTarget[size_t(cc)].load();index>=0){auto* entry=map->createNewChildElement("Map");entry->setAttribute("cc",cc);entry->setAttribute("id",parameterId(index));}
   copyXmlToBinary(*xml,dest);}
  // ---- MIDI learn: one CC per control. Learning: touch a control on the panel, then move a knob on the controller.
@@ -344,6 +355,8 @@ public:
     for(auto* entry:map->getChildIterator()){const int cc=entry->getIntAttribute("cc",-1);const int index=parameterIndex(entry->getStringAttribute("id"));if(isPositiveAndBelow(cc,128)&&index>=0)ccTarget[size_t(cc)].store(index);}
     xml->removeChildElement(map,true);}
    auto restored=ValueTree::fromXml(*xml);
+   // A patch saved with a sequence brings it back; one saved without leaves the current sequence alone.
+   if(restored.hasProperty("sequence")){const SpinLock::ScopedLockType lock(sequenceLock);sequence.fromString(restored.getProperty("sequence").toString());sequenceSteps.store(sequence.length);restored.removeProperty("sequence",nullptr);}
    // Sessions and presets saved before state version 2 stored chorus mode as 0 = I, 1 = II.
    if(int(restored.getProperty("stateVersion",1))<2){for(auto child:restored)if(child.getProperty("id").toString()=="chorusMode")child.setProperty("value",float(child.getProperty("value"))+1.f,nullptr);}
    // Before state version 3 the high-pass was a continuous cutoff in Hz; it is now a four-position switch.
@@ -386,7 +399,7 @@ private:
  private:
  std::atomic<bool> modified{false};
  std::atomic<int> currentProgram{0};
- GlideMemory previousSix,previousEight;double sampleRate=44100;Arpeggiator arp;Arpeggiator::Sequence sequence;std::array<std::atomic<float>*,16> seqInterval{},seqOn{};dsp::Phaser<float> phaser;CharacterDelay echo;OrbitReverb reverb;NoteHold hold;
+ GlideMemory previousSix,previousEight;double sampleRate=44100;Arpeggiator arp;Arpeggiator::Sequence sequence;SpinLock sequenceLock;Array<int> recordHeld,recordChord;bool wasRecording=false,wasResting=false;dsp::Phaser<float> phaser;CharacterDelay echo;OrbitReverb reverb;NoteHold hold;
  VoiceAllocator voices8,voices6;EnsembleChorus chorus;dsp::Oversampling<float> drivePass{2,1,dsp::Oversampling<float>::filterHalfBandPolyphaseIIR,true,false};int driveBlock=512;SmoothedValue<float> gain;int lastMode=-1;
 };
 #include "Editor.h"
