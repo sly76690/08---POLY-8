@@ -1,16 +1,19 @@
 #pragma once
 // Sample-clock arpeggiator. Held keys retain their MIDI channels and velocities.
+// Pattern 4 (SEQ) is a 16-step sequencer: at each step every held key sounds, transposed by that step's interval,
+// or the step is a rest. Hold a single key for a line, a chord for a chord sequence.
 class Arpeggiator {
 public:
+ struct Sequence { int length=16; std::array<int,16> transpose{}; std::array<bool,16> on{}; };
  void prepare(double rate) {sr=rate;output.ensureSize(32768);reset();}
- void reset(){held.fill(0);heldCount=0;remaining=gate=0;active=-1;step=0;wasEnabled=false;}
+ void reset(){held.fill(0);heldCount=0;remaining=gate=0;activeCount=0;step=0;wasEnabled=false;}
  // samplesToGrid: when >= 0, the number of samples from the start of this block to the next step of the host's
  // beat grid; steps then fall on the grid instead of starting with the first key.
- void process(juce::MidiBuffer& input,int samples,bool enabled,double bpm,int division,int pattern,int octaves,float gateRatio,double samplesToGrid=-1.) {
+ void process(juce::MidiBuffer& input,int samples,bool enabled,double bpm,int division,int pattern,int octaves,float gateRatio,double samplesToGrid=-1.,const Sequence* sequence=nullptr) {
   output.clear();
   if(enabled!=wasEnabled) {
    for(int ch=1;ch<=16;++ch) output.addEvent(juce::MidiMessage::allNotesOff(ch),0);
-   active=-1;remaining=gate=0;step=0;
+   activeCount=0;remaining=gate=0;step=0;
    if(!enabled) for(int key=0;key<2048;++key) if(held[size_t(key)]>0) output.addEvent(juce::MidiMessage::noteOn(key/128+1,key%128,held[size_t(key)]),0);
    wasEnabled=enabled;
   }
@@ -29,21 +32,29 @@ public:
    }
    if(!enabled) continue;
    if(heldCount==0){stop(sample);step=0;if(grid){if(remaining--<=0)remaining=interval-1;}else remaining=0;continue;}
-   if(active>=0 && --gate<=0) stop(sample);
+   if(activeCount>0 && --gate<=0) stop(sample);
    if(remaining--<=0) {
     stop(sample);int count=0;
+    if(pattern==4&&sequence!=nullptr){ // SEQ: every held key, transposed by this step; a step switched off is a rest
+     const int index=step%juce::jlimit(1,16,sequence->length);
+     if(sequence->on[size_t(index)])
+      for(int key=0;key<2048&&activeCount<int(activeNotes.size());++key)if(held[size_t(key)]>0){
+       const int note=juce::jlimit(0,127,key%128+sequence->transpose[size_t(index)]);activeNotes[size_t(activeCount++)]=(key/128)*128+note;
+       output.addEvent(juce::MidiMessage::noteOn(key/128+1,note,held[size_t(key)]),sample);}
+     step=(step+1)%1000000;gate=juce::jmax(1,int(interval*gateRatio));remaining=interval-1;continue;
+    }
     for(int octave=0;octave<octaves;++octave) for(int n=0;n<128;++n) for(int ch=0;ch<16;++ch) {
      int key=ch*128+n;if(held[size_t(key)]>0 && n+12*octave<128) {notes[size_t(count)]=ch*128+n+12*octave;velocities[size_t(count++)]=held[size_t(key)];}
     }
     if(count>0){int index=step%count;if(pattern==1) index=count-1-index;else if(pattern==3) index=random.nextInt(count);else if(pattern==2 && count>1){int position=step%(count*2-2);index=position<count?position:count*2-2-position;}
-     active=notes[size_t(index)];output.addEvent(juce::MidiMessage::noteOn(active/128+1,active%128,velocities[size_t(index)]),sample);step=(step+1)%1000000;gate=juce::jmax(1,int(interval*gateRatio));}
+     const int active=notes[size_t(index)];activeNotes[0]=active;activeCount=1;output.addEvent(juce::MidiMessage::noteOn(active/128+1,active%128,velocities[size_t(index)]),sample);step=(step+1)%1000000;gate=juce::jmax(1,int(interval*gateRatio));}
     remaining=interval-1;
    }
   }
   input.swapWith(output);
  }
 private:
- void stop(int sample){if(active>=0) output.addEvent(juce::MidiMessage::noteOff(active/128+1,active%128),sample);active=-1;}
- double sr=44100;int heldCount=0,remaining=0,gate=0,active=-1,step=0;bool wasEnabled=false;
+ void stop(int sample){for(int i=0;i<activeCount;++i){const int a=activeNotes[size_t(i)];output.addEvent(juce::MidiMessage::noteOff(a/128+1,a%128),sample);}activeCount=0;}
+ double sr=44100;int heldCount=0,remaining=0,gate=0,activeCount=0,step=0;bool wasEnabled=false;std::array<int,16> activeNotes{};
  std::array<float,2048> held{};std::array<int,6144> notes{};std::array<float,6144> velocities{};juce::MidiBuffer output;juce::Random random{106};
 };

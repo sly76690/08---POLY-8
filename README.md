@@ -27,10 +27,11 @@ bash tools/paquet.sh
 - Le DCO hérité d'Orbit reste dans le moteur (paramètres cachés) pour relire les anciens patchs.
 - **Ladder** : au-dessus de RES 9 il auto-oscille (sinus sur FREQ) ; en dessous, courbe d'Orbit inchangée. HPF : passe-haut 2 pôles sans résonance (fader HPF du FILTER A).
 - Façade : bandeaux gris acier, texte noir ; logo O8 bleu et gris clair.
+- **SEQUENCER 16 pas** (motif SEQ de l'arpégiateur) : intervalle −24…+24 et silence par pas, longueur 1–16 ; une note tenue = une ligne, un accord = une suite d'accords.
+- **PHASER** après le chorus : ON, RATE, DEPTH, FDBK, MIX.
 - Tests : 37, dont `Tests/PolyMod.h` (SHAPE, mixer, sources et destinations de la Poly-Mod).
 
 ## À faire
 
 - Nom commercial, logo et couleur d'accent (la façade reprend encore l'icône O6 d'Orbit).
 - Banque *Midnight Signals* : elle vient d'Orbit (sons DCO) — la garder ou la retirer de Poly 8.
-- Phaser, séquenceur 16 pas.

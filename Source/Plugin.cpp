@@ -26,6 +26,7 @@ public:
  Orbit() : AudioProcessor(BusesProperties().withOutput("Stereo",AudioChannelSet::stereo(),true)), state(*this,nullptr,"OrbitState",parameters()), voices8(state,true), voices6(state,true) {
   for(int i=0;i<8;++i){auto* voice=new Voice(state,previousEight,modulation);voice->setVoiceIndex(i);voice->setVintage(true);voices8.addVoice(voice);} voices8.addSound(new Sound()); voices8.setNoteStealingEnabled(true);
   for(int i=0;i<6;++i){auto* voice=new Voice(state,previousSix,modulation);voice->setVoiceIndex(i);voices6.addVoice(voice);} voices6.addSound(new Sound());voices6.setNoteStealingEnabled(true);
+  for(size_t i=0;i<16;++i){seqInterval[i]=state.getRawParameterValue("seqT"+String(int(i)+1));seqOn[i]=state.getRawParameterValue("seqOn"+String(int(i)+1));}
   for(auto* param:getParameters()) if(auto* identified=dynamic_cast<AudioProcessorParameterWithID*>(param)) state.addParameterListener(identified->paramID,this);
   state.state.setProperty("stateVersion",5,nullptr);
   for(auto& slot:ccTarget)slot.store(-1);addListener(this);
@@ -60,11 +61,14 @@ public:
    "delayTime","delaySync","delayFeedback","delayMod","delayMix","reverbOn","reverbType","reverbSize", // DELAY, REVERB
    "reverbDamp","reverbColor","reverbMix","lfoManual","lfoTrig","atVolume","atLfo","atDrive",
    "osc2Tune","oscSync","vco2Low","vcoPwm",
+   "phaserOn","phaserRate","phaserDepth","phaserFeedback","phaserMix","seqLength",                   // PHASER, SEQUENCER
+   "seqT1","seqT2","seqT3","seqT4","seqT5","seqT6","seqT7","seqT8","seqT9","seqT10","seqT11","seqT12","seqT13","seqT14","seqT15","seqT16",
+   "seqOn1","seqOn2","seqOn3","seqOn4","seqOn5","seqOn6","seqOn7","seqOn8","seqOn9","seqOn10","seqOn11","seqOn12","seqOn13","seqOn14","seqOn15","seqOn16",
    "osc1Shape","osc2Shape","wave","width","pwm","sub","noise","osc1Level","jupiterMix"}; // fixed shapes and the DCO, kept for old patches                                        // REVERB, EXPRESSION
   // Short names for the host and controller displays (Push shows about a dozen characters).
   static String label(const String& id,const String& longName){
    static const std::map<String,String> names{
-    {"jupiterMix","DCO/VCO"},{"vco1Wave","VCO1 Shape"},{"vco2Wave","VCO2 Shape"},{"vcoSub","VCO Sub"},{"vcoNoise","VCO Noise"},{"polyEnv","PM Env"},{"polyOsc","PM Osc1"},{"polyFreq","PM>Freq2"},{"polyWidth","PM>PW2"},{"polyFilter","PM>Filter"},{"vcoPwm","VCO PWM"},{"vco1Width","VCO1 Width"},{"vco2Low","VCO2 Low"},{"wave","DCO SawPls"},{"width","DCO Width"},{"pwm","DCO PWM"},{"sub","Sub Level"},{"noise","Noise"},{"osc1Shape","VCO1 Wave"},{"osc1Octave","VCO1 Range"},{"osc1Level","DCO Level"},
+    {"jupiterMix","DCO/VCO"},{"phaserOn","Phaser On"},{"phaserRate","Ph Rate"},{"phaserDepth","Ph Depth"},{"phaserFeedback","Ph Fdbk"},{"phaserMix","Ph Mix"},{"seqLength","Seq Length"},{"vco1Wave","VCO1 Shape"},{"vco2Wave","VCO2 Shape"},{"vcoSub","VCO Sub"},{"vcoNoise","VCO Noise"},{"polyEnv","PM Env"},{"polyOsc","PM Osc1"},{"polyFreq","PM>Freq2"},{"polyWidth","PM>PW2"},{"polyFilter","PM>Filter"},{"vcoPwm","VCO PWM"},{"vco1Width","VCO1 Width"},{"vco2Low","VCO2 Low"},{"wave","DCO SawPls"},{"width","DCO Width"},{"pwm","DCO PWM"},{"sub","Sub Level"},{"noise","Noise"},{"osc1Shape","VCO1 Wave"},{"osc1Octave","VCO1 Range"},{"osc1Level","DCO Level"},
     {"oscLayer","Source Mix"},{"osc2Width","VCO2 Width"},{"osc2Tune","VCO2 Tune"},{"detune","VCO2 Fine"},{"osc2Shape","VCO2 Wave"},{"osc2Octave","VCO2 Range"},{"oscSync","VCO2 Sync"},{"crossMod","X-Mod"},
     {"cutoff","A Freq"},{"resonance","A Reso"},{"env","A Env"},{"keytrack","Filter Kybd"},{"lfoFilter","Filter LFO"},{"hpfFreq","HPF"},{"slope","A Slope"},{"filterAType","A Model"},
     {"attack","Amp Attack"},{"decay","Amp Decay"},{"sustain","Amp Sustain"},{"release","Amp Release"},{"velocity","Velocity"},{"vcaMode","VCA Mode"},{"portamento","Portamento"},{"legato","Legato"},
@@ -123,7 +127,7 @@ public:
   keep(std::make_unique<AudioParameterBool>(ParameterID{"arpSync",1},label("arpSync","Host tempo"),false));
   add("arpTempo","Arp tempo",40,300,120);add("arpGate","Arp gate",0.1f,0.95f,0.65f);
   keep(std::make_unique<AudioParameterChoice>(ParameterID{"arpDivision",1},label("arpDivision","Arp division"),StringArray{"1/4","1/8","1/16","1/32"},1));
-  keep(std::make_unique<AudioParameterChoice>(ParameterID{"arpPattern",1},label("arpPattern","Arp pattern"),StringArray{"UP","DOWN","UP/DOWN","RANDOM"},0));
+  keep(std::make_unique<AudioParameterChoice>(ParameterID{"arpPattern",1},label("arpPattern","Arp pattern"),StringArray{"UP","DOWN","UP/DOWN","RANDOM","SEQUENCE"},0));
   keep(std::make_unique<AudioParameterChoice>(ParameterID{"arpOctaves",1},label("arpOctaves","Arp octaves"),StringArray{"1 OCT","2 OCT","3 OCT"},0));
   add("fxDrive","Drive",0,1,0);add("delayTime","Delay time (s)",0.03f,1.5f,0.3f);add("delayFeedback","Delay feedback",0,1.1f,0.3f);add("delayMod","Delay modulation",0,1,0.3f);add("delayMix","Delay mix",0,0.65f,0);
   add("reverbSize","Reverb size",0,1,0.5f);add("reverbDamp","Reverb damping",0,1,0.5f);add("reverbMix","Reverb mix",0,0.65f,0);add("reverbColor","Reverb color",0,1,0.4f);
@@ -139,6 +143,12 @@ public:
   add("polyEnv","Poly-mod filter envelope",-1,1,0);add("polyOsc","Poly-mod VCO 1",-1,1,0);
   keep(std::make_unique<AudioParameterBool>(ParameterID{"polyFreq",1},label("polyFreq","Poly-mod to VCO 2 frequency"),true));
   keep(std::make_unique<AudioParameterBool>(ParameterID{"polyWidth",1},label("polyWidth","Poly-mod to VCO 2 pulse width"),false));
+  // PHASER (after the chorus) and the 16-step SEQUENCER (arpeggio pattern SEQ: interval and on/off per step).
+  keep(std::make_unique<AudioParameterBool>(ParameterID{"phaserOn",1},label("phaserOn","Phaser on"),false));
+  add("phaserRate","Phaser rate (Hz)",.05f,5,.35f,.4f);add("phaserDepth","Phaser depth",0,1,.6f);add("phaserFeedback","Phaser feedback",0,.85f,.45f);add("phaserMix","Phaser mix",0,1,.5f);
+  keep(std::make_unique<AudioParameterInt>(ParameterID{"seqLength",1},label("seqLength","Sequence length"),1,16,16));
+  for(int i=1;i<=16;++i){keep(std::make_unique<AudioParameterInt>(ParameterID{"seqT"+String(i),1},"Step "+String(i)+" Int",-24,24,0));
+   keep(std::make_unique<AudioParameterBool>(ParameterID{"seqOn"+String(i),1},"Step "+String(i)+" On",true));}
   keep(std::make_unique<AudioParameterBool>(ParameterID{"polyFilter",1},label("polyFilter","Poly-mod to filters"),false));
   add("osc1Level","Oscillator I level",0,1,1);add("osc2Width","Oscillator II pulse width",.08f,.92f,.5f);
   choice("osc1Octave","VCO 1 range",{"64'","32'","16'","8'","4'","2'"},3);
@@ -242,7 +252,7 @@ public:
   sampleRate=sr;echo.prepare(sr);reverb.prepare(sr);
   voices8.setCurrentPlaybackSampleRate(sr); for(int i=0;i<voices8.getNumVoices();++i) static_cast<Voice*>(voices8.getVoice(i))->prepare(sr);
   voices6.setCurrentPlaybackSampleRate(sr); for(int i=0;i<voices6.getNumVoices();++i) static_cast<Voice*>(voices6.getVoice(i))->prepare(sr);
-  ignoreUnused(block);chorus.prepare(sr);
+  ignoreUnused(block);chorus.prepare(sr);phaser.prepare({sr,uint32(jmax(block,512)),2});phaser.reset();
   gain.reset(sr,0.02);gain.setCurrentAndTargetValue(state.getRawParameterValue("gain")->load());
  }
  void releaseResources() override {voices8.allNotesOff(0,false);voices6.allNotesOff(0,false);chorus.reset();keyboard.reset();arp.reset();hold.reset();echo.reset();reverb.reset();previousSix=previousEight=0;}
@@ -269,7 +279,9 @@ public:
     samplesToGrid=(into<halfSample||step-into<halfSample)?0.:(step-into)*60./bpm*sampleRate;
    }
   }
-  arp.process(midi,buffer.getNumSamples(),value("arpOn")>.5f,bpm,division,int(value("arpPattern")),int(value("arpOctaves"))+1,value("arpGate"),samplesToGrid);
+  for(size_t i=0;i<16;++i){sequence.transpose[i]=int(seqInterval[i]->load());sequence.on[i]=seqOn[i]->load()>.5f;} // read without building names on the audio thread
+  sequence.length=int(value("seqLength"));
+  arp.process(midi,buffer.getNumSamples(),value("arpOn")>.5f,bpm,division,int(value("arpPattern")),int(value("arpOctaves"))+1,value("arpGate"),samplesToGrid,&sequence);
   int mode=state.getRawParameterValue("mode")->load()>0.5f?1:0;
   voices8.updateMode();voices6.updateMode();
   if(mode!=lastMode) {voices8.allNotesOff(0,false);voices6.allNotesOff(0,false);lastMode=mode;}
@@ -278,6 +290,10 @@ public:
   renderLfo(buffer.getNumSamples(),lfoBpm,lfoBeats);
   (mode==0?voices6:voices8).renderNextBlock(buffer,midi,0,buffer.getNumSamples());
   chorus.process(buffer,int(value("chorusMode")),value("chorus"));
+  // PHASER: always running, its mix brought to zero (smoothly) when it is off, so switching it never clicks.
+  if(buffer.getNumChannels()>=2){phaser.setRate(value("phaserRate"));phaser.setDepth(value("phaserDepth"));phaser.setFeedback(value("phaserFeedback"));
+   phaser.setCentreFrequency(900.f);phaser.setMix(value("phaserOn")>.5f?value("phaserMix"):0.f);
+   dsp::AudioBlock<float> block(buffer.getArrayOfWritePointers(),2,size_t(buffer.getNumSamples()));phaser.process(dsp::ProcessContextReplacing<float>(block));}
   // Drive, then the echo.
   // POST drive at twice the sample rate, for the same reason as the voices: its overtones are filtered out, not folded back.
   if(const float drive=value("fxDrive");drive>0&&buffer.getNumChannels()>=2){
@@ -370,7 +386,7 @@ private:
  private:
  std::atomic<bool> modified{false};
  std::atomic<int> currentProgram{0};
- GlideMemory previousSix,previousEight;double sampleRate=44100;Arpeggiator arp;CharacterDelay echo;OrbitReverb reverb;NoteHold hold;
+ GlideMemory previousSix,previousEight;double sampleRate=44100;Arpeggiator arp;Arpeggiator::Sequence sequence;std::array<std::atomic<float>*,16> seqInterval{},seqOn{};dsp::Phaser<float> phaser;CharacterDelay echo;OrbitReverb reverb;NoteHold hold;
  VoiceAllocator voices8,voices6;EnsembleChorus chorus;dsp::Oversampling<float> drivePass{2,1,dsp::Oversampling<float>::filterHalfBandPolyphaseIIR,true,false};int driveBlock=512;SmoothedValue<float> gain;int lastMode=-1;
 };
 #include "Editor.h"

@@ -419,9 +419,9 @@ private:
 
 class Editor : public AudioProcessorEditor, private Timer {
  using APVTS = AudioProcessorValueTreeState;
- enum { designW = 1600, designH = 1000, left = 32, contentW = 1536, gap = 12 };
+ enum { designW = 1600, designH = 1110, left = 32, contentW = 1536, gap = 12 };
  enum { cheek = 26, frameW = designW + 2 * cheek }; // wide wooden end cheeks around the design surface
- enum { headerY = 4, lineY = 104, panelY = 120, panelH = 242, row2Y = 382, row2H = 224, lowerY = 624, lowerH = 120, keysY = 764, keysH = 218 }; // Space below effects separates the keyboard from the editing surface.
+ enum { headerY = 4, lineY = 104, panelY = 120, panelH = 242, row2Y = 382, row2H = 224, lowerY = 624, lowerH = 120, seqY = 762, seqH = 102, keysY = 874, keysH = 218 }; // Poly 8: a SEQUENCER / PHASER row above the keyboard // Space below effects separates the keyboard from the editing surface.
  struct Section { String title; Colour colour; Rectangle<int> area; int page; };
  struct Fader { Slider slider; String id; bool followsLink = false; std::unique_ptr<APVTS::SliderAttachment> attachment; };
  struct Toggle { TextButton button; std::unique_ptr<APVTS::ButtonAttachment> attachment; };
@@ -704,8 +704,8 @@ private:
   compactKnob("age","AGE",cells[2]);compactKnob("voiceWidth","WIDTH",cells[3]);chipChoice("vcaMode","VCA",{"ENV","GATE","F.ENV"},cells[4].withHeight(79),true);switches.getLast()->setLever();printedToggle("hold","HOLD",cells[5].withTrimmedTop(18).expanded(6,0).withRight(area.getRight()+4));
   area=section("GLIDE",teal,{338,lowerY,180,lowerH});cells=split(area,{1,1,1,1});
   compactKnob("portamento","PORTA",cells[0]);compactKnob("bendRange","BEND",cells[1]);compactKnob("unisonSpread","SPREAD",cells[2]);printedToggle("legato","LEGATO",cells[3].withTrimmedTop(18));
-  area=section("ARPEGGIO",teal,{524,lowerY,340,lowerH});cells=split(area,{.7f,.8f,2.7f,1, .8f,1,1});
-  printedToggle("arpOn","ON",cells[0].withTrimmedTop(18));printedToggle("arpSync","SYNC",cells[1].withTrimmedTop(18));chipChoice("arpPattern","",{"UP","DOWN","U&D","RND"},cells[2].withHeight(65));
+  area=section("ARPEGGIO",teal,{524,lowerY,340,lowerH});cells=split(area,{.6f,.7f,3.3f,.9f,.75f,1.f,1.f});
+  printedToggle("arpOn","ON",cells[0].withTrimmedTop(18));printedToggle("arpSync","SYNC",cells[1].withTrimmedTop(18));chipChoice("arpPattern","",{"UP","DOWN","U&D","RND","SEQ"},cells[2].withHeight(65));
   menuChoice("arpDivision","STEP",cells[3]);menuChoice("arpOctaves","OCT",cells[4]);compactKnob("arpTempo","TEMPO",cells[5]);compactKnob("arpGate","GATE",cells[6]);
   area=section("DELAY",teal,{870,lowerY,230,lowerH});cells=split(area,{1,1,1,1,.75f,.9f});
   compactKnob("delayTime","TIME",cells[0]);delayTimeKnob=&faders.getLast()->slider;
@@ -715,6 +715,21 @@ private:
   area=section("REVERB",teal,{1106,lowerY,300,lowerH});cells=split(area,{2.3f,1,1,1,1,.8f});
   chipChoice("reverbType","",{"VINT","PLATE","SPACE"},cells[0].withHeight(65));compactKnob("reverbSize","SIZE",cells[1]);compactKnob("reverbDamp","DAMP",cells[2]);compactKnob("reverbColor","COLOR",cells[3]);compactKnob("reverbMix","LEVEL",cells[4]);printedToggle("reverbOn","ON",cells[5].withTrimmedTop(18));
   area=section("OUTPUT",teal,{1412,lowerY,156,lowerH});cells=split(area,{1,1});compactKnob("gain","VOLUME",cells[0]);compactKnob("masterTune","TUNE",cells[1]);
+  buildSequencerRow();
+ }
+ // SEQUENCER: played by the arpeggiator when its pattern is SEQ (ON, tempo, STEP and GATE come from ARPEGGIO). Each step
+ // has an interval (semitones from the held keys) and a key that turns it into a rest. PHASER: after the chorus.
+ void buildSequencerRow(){
+  using namespace orbitui;
+  auto area=section("SEQUENCER   -   ARPEGGIO PATTERN SEQ",steel,{32,seqY,1230,seqH});
+  auto cells=split(area,{1.1f,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1});
+  compactKnob("seqLength","LENGTH",cells[0]);
+  for(int i=0;i<16;++i){const auto cell=cells[size_t(i+1)];
+   compactKnob(("seqT"+String(i+1)).toRawUTF8(),String(i+1).toRawUTF8(),cell.withWidth(cell.getWidth()-22));
+   addToggle(("seqOn"+String(i+1)).toRawUTF8(),{},-1,Rectangle<int>(cell.getRight()-24,cell.getY()+28,22,22),1,neutral);}
+  area=section("PHASER",teal,{1268,seqY,300,seqH});cells=split(area,{.8f,1,1,1,1});
+  printedToggle("phaserOn","ON",cells[0].withTrimmedTop(10));compactKnob("phaserRate","RATE",cells[1]);compactKnob("phaserDepth","DEPTH",cells[2]);
+  compactKnob("phaserFeedback","FDBK",cells[3]);compactKnob("phaserMix","MIX",cells[4]);
  }
 
  void buildKeyboard() {

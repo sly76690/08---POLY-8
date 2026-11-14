@@ -1,5 +1,6 @@
 #pragma once
 #include "../Source/OscillatorBank.h"
+#include "../Source/Arpeggiator.h"
 // The voice's filter, compiled here on its own (the plugin builds the same header with its own Sound type).
 #include <juce_dsp/juce_dsp.h>
 #include <array>
@@ -63,6 +64,21 @@ static bool polyModTests(){
  {std::unique_ptr<juce::AudioProcessor> q(createPluginFilter());for(auto* b:q->getParameters())if(auto* r=dynamic_cast<juce::RangedAudioParameter*>(b))if(r->paramID=="vco1Wave"){
    const auto& range=r->getNormalisableRange();
    if(!require(std::abs(range.snapToLegalValue(.35f)-1.f/3.f)<1.e-6f&&std::abs(range.snapToLegalValue(.98f)-1.f)<1.e-6f&&std::abs(range.snapToLegalValue(.5f)-.5f)<1.e-6f,"SHAPE detents"))return false;}}
- std::cout<<"PASS poly 8: continuous SHAPE, VCO mixer, POLY-MOD sources and destinations\n";
+ // SEQUENCER: intervals per step, rests, the length, and chords (every held key moves together).
+ {auto run=[](std::vector<int> keys){Arpeggiator arp;arp.prepare(48000);Arpeggiator::Sequence seq;seq.length=4;seq.transpose={0,7,12,-5};seq.on.fill(true);seq.on[2]=false;
+   std::vector<std::vector<int>> steps;int last=-1;
+   for(int b=0;b<200;++b){juce::MidiBuffer m;if(b==0)for(int k:keys)m.addEvent(juce::MidiMessage::noteOn(1,k,.8f),0);
+    arp.process(m,512,true,120,2,4,1,.5f,-1.,&seq);
+    for(const auto meta:m){const auto msg=meta.getMessage();if(!msg.isNoteOn())continue;const int at=b*512+meta.samplePosition;
+     if(at!=last){steps.push_back({});last=at;}steps.back().push_back(msg.getNoteNumber());}}
+   return steps;};
+  const auto line=run({60});const std::vector<int> expected{60,67,55,60,67,55};
+  if(!require(line.size()>=6,"sequencer plays too few steps"))return false;
+  for(size_t i=0;i<expected.size();++i)if(!require(line[i].size()==1&&line[i][0]==expected[i],"sequencer intervals, rest or length wrong"))return false;
+  const auto chord=run({60,64});if(!require(chord.size()>=3&&chord[1].size()==2&&chord[1][0]==67&&chord[1][1]==71,"sequencer does not move a chord"))return false;}
+ // PHASER: heard when on, transparent when off.
+ {const auto off=plug({{"phaserOn",0},{"cutoff",8000}}),on=plug({{"phaserOn",1},{"phaserMix",1},{"cutoff",8000}});
+  if(!require(diff(off,on)>.001,"phaser inactive"))return false;for(float v:on)if(!require(std::isfinite(v)&&std::abs(v)<4.f,"phaser unstable"))return false;}
+ std::cout<<"PASS poly 8: continuous SHAPE, VCO mixer, POLY-MOD, ladder self-oscillation, sequencer, phaser\n";
  return true;
 }
