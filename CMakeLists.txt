@@ -3,6 +3,8 @@ project(Poly8 VERSION 0.1.0 LANGUAGES C CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "Minimum macOS")
 add_subdirectory(vendor/JUCE-8.0.6 EXCLUDE_FROM_ALL)
+# The app icon is made when CMake configures: changing the image must re-run that step.
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/Source/Assets/orbit-icon.png")
 juce_add_plugin(Poly8 ICON_BIG "${CMAKE_CURRENT_SOURCE_DIR}/Source/Assets/orbit-icon.png" COMPANY_NAME "SF Instruments" BUNDLE_ID "com.sfinstruments.poly8" PLUGIN_MANUFACTURER_CODE SfIn PLUGIN_CODE Ply8 FORMATS AU VST3 Standalone PRODUCT_NAME "Poly 8" IS_SYNTH TRUE NEEDS_MIDI_INPUT TRUE NEEDS_MIDI_OUTPUT FALSE IS_MIDI_EFFECT FALSE COPY_PLUGIN_AFTER_BUILD FALSE VST3_CATEGORIES Instrument Synth)
 juce_add_binary_data(OrbitReference SOURCES design/neo-vintage/reference-approved.png Source/Assets/orbit-icon.png
   Source/Assets/skin/knob.png Source/Assets/skin/fader.png Source/Assets/skin/led.png
