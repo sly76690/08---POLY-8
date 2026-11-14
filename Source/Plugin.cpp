@@ -20,12 +20,13 @@ struct Sound : SynthesiserSound {
 #include "Voice.h"
 #include "VoiceAllocator.h"
 class Orbit : public AudioProcessor, private AudioProcessorValueTreeState::Listener, private AudioProcessorListener {
-public:
+ private:
+ struct Engine; // one sound: voices, LFO, effects (see below)
+ public:
  AudioProcessorValueTreeState state;
  MidiKeyboardState keyboard;
- Orbit() : AudioProcessor(BusesProperties().withOutput("Stereo",AudioChannelSet::stereo(),true)), state(*this,nullptr,"OrbitState",parameters()), voices8(state,true), voices6(state,true) {
-  for(int i=0;i<8;++i){auto* voice=new Voice(state,previousEight,modulation);voice->setVoiceIndex(i);voice->setVintage(true);voices8.addVoice(voice);} voices8.addSound(new Sound()); voices8.setNoteStealingEnabled(true);
-  for(int i=0;i<6;++i){auto* voice=new Voice(state,previousSix,modulation);voice->setVoiceIndex(i);voices6.addVoice(voice);} voices6.addSound(new Sound());voices6.setNoteStealingEnabled(true);
+ Orbit() : AudioProcessor(BusesProperties().withOutput("Stereo",AudioChannelSet::stereo(),true)), state(*this,nullptr,"OrbitState",parameters()), main(state,nullptr), sequenceSound(state,&sequenceLayer) {
+  sequenceLayer.build(state,getParameters());
   recordHeld.ensureStorageAllocated(128);recordChord.ensureStorageAllocated(128); // no allocation on the audio thread while recording
   for(auto* param:getParameters()) if(auto* identified=dynamic_cast<AudioProcessorParameterWithID*>(param)) state.addParameterListener(identified->paramID,this);
   state.state.setProperty("stateVersion",5,nullptr);
@@ -269,15 +270,10 @@ public:
  const String getProgramName(int index) override {return isPositiveAndBelow(index,getNumPrograms())?patches()[size_t(index)].name:String();}
  void changeProgramName(int,const String&) override {}
  void prepareToPlay(double sr,int block) override {
-  driveBlock=jmax(1,block);drivePass.reset();drivePass.initProcessing(size_t(driveBlock));
-  arp.prepare(sr);hold.prepare();previousSix=previousEight=0;modulation.lfo.assign(size_t(jmax(block,8192)),0.f);modulation.phase.assign(modulation.lfo.size(),0.f);lfoPhase=0;
-  sampleRate=sr;echo.prepare(sr);reverb.prepare(sr);
-  voices8.setCurrentPlaybackSampleRate(sr); for(int i=0;i<voices8.getNumVoices();++i) static_cast<Voice*>(voices8.getVoice(i))->prepare(sr);
-  voices6.setCurrentPlaybackSampleRate(sr); for(int i=0;i<voices6.getNumVoices();++i) static_cast<Voice*>(voices6.getVoice(i))->prepare(sr);
-  ignoreUnused(block);chorus.prepare(sr);phaser.prepare({sr,uint32(jmax(block,512)),2});phaser.reset();
-  gain.reset(sr,0.02);gain.setCurrentAndTargetValue(state.getRawParameterValue("gain")->load());
+  arp.prepare(sr);hold.prepare();sampleRate=sr;main.prepare(sr,block);sequenceSound.prepare(sr,block);
+  sequenceBuffer.setSize(2,jmax(block,8192));sequenceTail=0;
  }
- void releaseResources() override {voices8.allNotesOff(0,false);voices6.allNotesOff(0,false);chorus.reset();keyboard.reset();arp.reset();hold.reset();echo.reset();reverb.reset();previousSix=previousEight=0;}
+ void releaseResources() override {main.reset();sequenceSound.reset();keyboard.reset();arp.reset();hold.reset();}
  bool isBusesLayoutSupported(const BusesLayout& b) const override {return b.getMainOutputChannelSet()==AudioChannelSet::stereo();}
  void processBlock(AudioBuffer<float>& buffer,MidiBuffer& midi) override {
   ScopedNoDenormals noDenormals;buffer.clear();keyboard.processNextMidiBuffer(midi,0,buffer.getNumSamples(),true);
@@ -327,35 +323,49 @@ public:
    if(!overdub&&wasOverdubbing&&liveFresh){sequence.updateRoot();liveFresh=false;}
    wasRecording=recording;wasOverdubbing=overdub;wasResting=rest;
    const bool live=playing&&value("seqLive")>.5f;
-   arp.process(midi,buffer.getNumSamples(),value("arpOn")>.5f||playing,bpm,division,playing?4:int(value("arpPattern")),int(value("arpOctaves"))+1,value("arpGate"),samplesToGrid,&sequence,overdub||editing>=0||live,overdub);
+   arp.process(midi,buffer.getNumSamples(),value("arpOn")>.5f||playing,bpm,division,playing?4:int(value("arpPattern")),int(value("arpOctaves"))+1,value("arpGate"),samplesToGrid,&sequence,overdub||editing>=0||live,overdub,live);
    for(int i=0;i<arp.capturedCount;++i)sequence.merge(arp.capturedStep[size_t(i)],arp.capturedNote[size_t(i)],!liveFresh);
    sequenceSteps.store(sequence.length);}
-  int mode=state.getRawParameterValue("mode")->load()>0.5f?1:0;
-  voices8.updateMode();voices6.updateMode();
-  if(mode!=lastMode) {voices8.allNotesOff(0,false);voices6.allNotesOff(0,false);lastMode=mode;}
-  double lfoBpm=value("arpTempo");std::optional<double> lfoBeats;
+  // LIVE: the sequence plays on its own sound, frozen when LIVE (or PLAY with LIVE on) started; the keys play the panel's.
+  const bool layered=playing&&value("seqLive")>.5f;
+  if(layered&&!wasLayered)sequenceLayer.capture();
+  if(!layered&&wasLayered)for(int ch=1;ch<=16;++ch)arp.sequenceOutput.addEvent(MidiMessage::allNotesOff(ch),0);
+  if(layered||wasLayered)sequenceTail=int(sampleRate*8); // the frozen sound rings on (release, echo, reverb) after LIVE ends
+  wasLayered=layered;
+  renderSound(main,buffer,midi);
+  if(sequenceTail>0&&buffer.getNumChannels()>=2){const int n=buffer.getNumSamples();sequenceBuffer.setSize(2,n,false,false,true);sequenceBuffer.clear();
+   renderSound(sequenceSound,sequenceBuffer,arp.sequenceOutput);for(int c=0;c<2;++c)buffer.addFrom(c,0,sequenceBuffer,c,0,n);
+   if(!layered)sequenceTail-=n;}
+  else arp.sequenceOutput.clear();
+ }
+ // One sound through its voices, LFO, effects and output level.
+ void renderSound(Engine& e,AudioBuffer<float>& buffer,MidiBuffer& midi){
+  int mode=e.value("mode")>0.5f?1:0;
+  e.voices8.updateMode();e.voices6.updateMode();
+  if(mode!=e.lastMode) {e.voices8.allNotesOff(0,false);e.voices6.allNotesOff(0,false);e.lastMode=mode;}
+  double lfoBpm=e.value("arpTempo");std::optional<double> lfoBeats;
   if(auto* playHead=getPlayHead()) if(auto position=playHead->getPosition()){if(auto hostBpm=position->getBpm())lfoBpm=*hostBpm;if(position->getIsPlaying())if(auto beats=position->getPpqPosition())lfoBeats=*beats;}
-  renderLfo(buffer.getNumSamples(),lfoBpm,lfoBeats);
-  (mode==0?voices6:voices8).renderNextBlock(buffer,midi,0,buffer.getNumSamples());
-  chorus.process(buffer,int(value("chorusMode")),value("chorus"));
+  renderLfo(e,buffer.getNumSamples(),lfoBpm,lfoBeats);
+  (mode==0?e.voices6:e.voices8).renderNextBlock(buffer,midi,0,buffer.getNumSamples());
+  e.chorus.process(buffer,int(e.value("chorusMode")),e.value("chorus"));
   // PHASER: always running, its mix brought to zero (smoothly) when it is off, so switching it never clicks.
-  if(buffer.getNumChannels()>=2){phaser.setRate(value("phaserRate"));phaser.setDepth(value("phaserDepth"));phaser.setFeedback(value("phaserFeedback"));
-   phaser.setCentreFrequency(900.f);phaser.setMix(value("phaserOn")>.5f?value("phaserMix"):0.f);
-   dsp::AudioBlock<float> block(buffer.getArrayOfWritePointers(),2,size_t(buffer.getNumSamples()));phaser.process(dsp::ProcessContextReplacing<float>(block));}
+  if(buffer.getNumChannels()>=2){e.phaser.setRate(e.value("phaserRate"));e.phaser.setDepth(e.value("phaserDepth"));e.phaser.setFeedback(e.value("phaserFeedback"));
+   e.phaser.setCentreFrequency(900.f);e.phaser.setMix(e.value("phaserOn")>.5f?e.value("phaserMix"):0.f);
+   dsp::AudioBlock<float> block(buffer.getArrayOfWritePointers(),2,size_t(buffer.getNumSamples()));e.phaser.process(dsp::ProcessContextReplacing<float>(block));}
   // Drive, then the echo.
   // POST drive at twice the sample rate, for the same reason as the voices: its overtones are filtered out, not folded back.
-  if(const float drive=value("fxDrive");drive>0&&buffer.getNumChannels()>=2){
+  if(const float drive=e.value("fxDrive");drive>0&&buffer.getNumChannels()>=2){
    dsp::AudioBlock<float> block(buffer.getArrayOfWritePointers(),2,size_t(buffer.getNumSamples()));
-   for(size_t done=0;done<block.getNumSamples();done+=size_t(driveBlock)){ // in pieces no longer than prepared for
-    auto piece=block.getSubBlock(done,jmin(size_t(driveBlock),block.getNumSamples()-done));auto up=drivePass.processSamplesUp(piece);
+   for(size_t done=0;done<block.getNumSamples();done+=size_t(e.driveBlock)){ // in pieces no longer than prepared for
+    auto piece=block.getSubBlock(done,jmin(size_t(e.driveBlock),block.getNumSamples()-done));auto up=e.drivePass.processSamplesUp(piece);
     for(size_t c=0;c<up.getNumChannels();++c){auto* samples=up.getChannelPointer(c);for(size_t i=0;i<up.getNumSamples();++i)samples[i]=std::tanh(samples[i]*(1+drive*9))/(1+drive*2);}
-    drivePass.processSamplesDown(piece);
+    e.drivePass.processSamplesDown(piece);
    }
   }
   // Delay time: the TIME knob when free, otherwise a note value at the host tempo (the arpeggio TEMPO knob when there is no host).
-  float delaySeconds=value("delayTime");
-  if(const int syncStep=int(value("delaySync"));syncStep>0) {
-   double tempo=value("arpTempo");
+  float delaySeconds=e.value("delayTime");
+  if(const int syncStep=int(e.value("delaySync"));syncStep>0) {
+   double tempo=e.value("arpTempo");
    if(auto* playHead=getPlayHead()) if(auto position=playHead->getPosition()) if(auto hostBpm=position->getBpm()) tempo=*hostBpm;
    static const double beats[]={0,2.,1.5,1.,2./3.,.75,.5,1./3.,.375,.25,1./6.}; // D = dotted, T = triplet
    double seconds=beats[jlimit(1,10,syncStep)]*60./jmax(20.,tempo);
@@ -363,13 +373,13 @@ public:
    delaySeconds=float(seconds);
   }
   // ON keys: off fades the effect out (as its LEVEL at zero would) and leaves every setting where it is.
-  echo.process(buffer,delaySeconds,value("delayFeedback"),value("delayOn")>.5f?value("delayMix"):0.f,value("delayMod"));
-  reverb.process(buffer,int(value("reverbType")),value("reverbSize"),value("reverbDamp"),value("reverbColor"),value("reverbOn")>.5f?value("reverbMix"):0.f);
-  gain.setTargetValue(state.getRawParameterValue("gain")->load());
+  e.echo.process(buffer,delaySeconds,e.value("delayFeedback"),e.value("delayOn")>.5f?e.value("delayMix"):0.f,e.value("delayMod"));
+  e.reverb.process(buffer,int(e.value("reverbType")),e.value("reverbSize"),e.value("reverbDamp"),e.value("reverbColor"),e.value("reverbOn")>.5f?e.value("reverbMix"):0.f);
+  e.gain.setTargetValue(e.value("gain"));
   // Output: untouched up to the knee, then rounded off towards full scale, so loud passages never clip but normal
   // levels keep all their punch (a saturation applied everywhere used to soften every note a little).
   const auto limit=[](float x){constexpr float knee=.7f;const float a=std::abs(x);if(a<=knee)return x;return std::copysign(knee+(1.f-knee)*std::tanh((a-knee)/(1.f-knee)),x);};
-  for(int i=0;i<buffer.getNumSamples();++i) {float g=gain.getNextValue();for(int c=0;c<buffer.getNumChannels();++c) buffer.setSample(c,i,limit(buffer.getSample(c,i)*g));}
+  for(int i=0;i<buffer.getNumSamples();++i) {float g=e.gain.getNextValue();for(int c=0;c<buffer.getNumChannels();++c) buffer.setSample(c,i,limit(buffer.getSample(c,i)*g));}
  }
  bool hasEditor() const override {return true;} AudioProcessorEditor* createEditor() override;
  void getStateInformation(MemoryBlock& dest) override {auto saved=state.copyState();saved.setProperty("sequence",sequenceText(),nullptr);saved.setProperty("program",currentProgram.load(),nullptr);saved.setProperty("modified",modified.load(),nullptr);auto xml=saved.createXml();
@@ -420,31 +430,52 @@ private:
  void audioProcessorParameterChangeGestureBegin(AudioProcessor*,int index) override {lastTouched.store(index);} // the control just touched on the panel
  std::array<std::atomic<int>,128> ccTarget;std::atomic<bool> learning{false};std::atomic<int> lastTouched{-1};
  // The single LFO shared by all voices: free-running, one value per sample of the current block.
- void renderLfo(int count,double bpm,std::optional<double> beats) {
-  if(int(modulation.lfo.size())<count){modulation.lfo.resize(size_t(count));}
-  if(modulation.phase.size()<modulation.lfo.size())modulation.phase.resize(modulation.lfo.size());
-  const int shape=int(state.getRawParameterValue("lfoShape")->load());double step=state.getRawParameterValue("rate")->load()/sampleRate;
+ void renderLfo(Engine& e,int count,double bpm,std::optional<double> beats) {
+  if(int(e.modulation.lfo.size())<count){e.modulation.lfo.resize(size_t(count));}
+  if(e.modulation.phase.size()<e.modulation.lfo.size())e.modulation.phase.resize(e.modulation.lfo.size());
+  const int shape=int(e.value("lfoShape"));double step=e.value("rate")/sampleRate;
   // LFO SYNC: one cycle lasts a note value at the host tempo (the arpeggio TEMPO without a host); while the host plays,
   // the cycle is also lined up with its bars.
-  if(const int sync=int(state.getRawParameterValue("lfoSync")->load());sync>0){static const double quarters[]={0,16,8,4,2,1,.5,.25,2./3.,1./3.,1./6.};
+  if(const int sync=int(e.value("lfoSync"));sync>0){static const double quarters[]={0,16,8,4,2,1,.5,.25,2./3.,1./3.,1./6.};
    const double length=quarters[jlimit(1,10,sync)];step=jmax(20.,bpm)/60./length/sampleRate;
-   if(beats){double into=std::fmod(*beats/length,1.);if(into<0)into+=1.;lfoPhase=into;}}
-  modulation.shape=shape;modulation.step=step;
+   if(beats){double into=std::fmod(*beats/length,1.);if(into<0)into+=1.;e.lfoPhase=into;}}
+  e.modulation.shape=shape;e.modulation.step=step;
   // LFO MAN: tells the voices whether LFO TRIG is held, and for how long (samples, at the start of this block).
-  modulation.manual=state.getRawParameterValue("lfoManual")->load()>.5f;
-  if(modulation.manual&&state.getRawParameterValue("lfoTrig")->load()>.5f){modulation.manualAge=manualCount;manualCount+=count;}else{manualCount=0;modulation.manualAge=-1;}
+  e.modulation.manual=e.value("lfoManual")>.5f;
+  if(e.modulation.manual&&e.value("lfoTrig")>.5f){e.modulation.manualAge=e.manualCount;e.manualCount+=count;}else{e.manualCount=0;e.modulation.manualAge=-1;}
   for(int i=0;i<count;++i) {
-   const float t=float(lfoPhase);modulation.phase[size_t(i)]=t;modulation.lfo[size_t(i)]=ModulationBus::wave(shape,t);lfoPhase+=step;if(lfoPhase>=1)lfoPhase-=1;
+   const float t=float(e.lfoPhase);e.modulation.phase[size_t(i)]=t;e.modulation.lfo[size_t(i)]=ModulationBus::wave(shape,t);e.lfoPhase+=step;if(e.lfoPhase>=1)e.lfoPhase-=1;
   }
  }
- ModulationBus modulation;double lfoPhase=0,manualCount=0;
+
+ // ONE SOUND: voices, LFO, effects and output level. main plays the panel; sequenceSound plays a frozen copy of it (LIVE).
+ struct Engine {
+  Engine(AudioProcessorValueTreeState& s,const ParamLayer* frozen):state(s),layer(frozen),voices8(s,true,frozen),voices6(s,true,frozen){
+   for(int i=0;i<8;++i){auto* voice=new Voice(s,previousEight,modulation,frozen);voice->setVoiceIndex(i);voice->setVintage(true);voices8.addVoice(voice);} voices8.addSound(new Sound());voices8.setNoteStealingEnabled(true);
+   for(int i=0;i<6;++i){auto* voice=new Voice(s,previousSix,modulation,frozen);voice->setVoiceIndex(i);voices6.addVoice(voice);} voices6.addSound(new Sound());voices6.setNoteStealingEnabled(true);}
+  float value(const char* key) const {const auto* a=state.getRawParameterValue(key);return layer!=nullptr?layer->get(a):a->load();}
+  void prepare(double sr,int block){
+   driveBlock=jmax(1,block);drivePass.reset();drivePass.initProcessing(size_t(driveBlock));
+   previousSix=previousEight=0;modulation.lfo.assign(size_t(jmax(block,8192)),0.f);modulation.phase.assign(modulation.lfo.size(),0.f);lfoPhase=0;
+   echo.prepare(sr);reverb.prepare(sr);
+   voices8.setCurrentPlaybackSampleRate(sr); for(int i=0;i<voices8.getNumVoices();++i) static_cast<Voice*>(voices8.getVoice(i))->prepare(sr);
+   voices6.setCurrentPlaybackSampleRate(sr); for(int i=0;i<voices6.getNumVoices();++i) static_cast<Voice*>(voices6.getVoice(i))->prepare(sr);
+   chorus.prepare(sr);phaser.prepare({sr,uint32(jmax(block,512)),2});phaser.reset();
+   gain.reset(sr,0.02);gain.setCurrentAndTargetValue(value("gain"));}
+  void reset(){voices8.allNotesOff(0,false);voices6.allNotesOff(0,false);chorus.reset();echo.reset();reverb.reset();previousSix=previousEight=0;}
+  AudioProcessorValueTreeState& state;const ParamLayer* layer;
+  GlideMemory previousSix,previousEight;ModulationBus modulation;double lfoPhase=0,manualCount=0;
+  VoiceAllocator voices8,voices6;EnsembleChorus chorus;dsp::Phaser<float> phaser;CharacterDelay echo;OrbitReverb reverb;
+  dsp::Oversampling<float> drivePass{2,1,dsp::Oversampling<float>::filterHalfBandPolyphaseIIR,true,false};int driveBlock=512;SmoothedValue<float> gain;int lastMode=-1;
+ };
  public: std::atomic<int> screenPitch{-1};
  public: std::atomic<int> screenPressure{-1}; // set by the panel keyboard (Force Touch), sent as channel pressure
  private:
+ struct Engine; // one sound (see below)
  std::atomic<bool> modified{false};
  std::atomic<int> currentProgram{0};
- GlideMemory previousSix,previousEight;double sampleRate=44100;Arpeggiator arp;Arpeggiator::Sequence sequence;SpinLock sequenceLock;Array<int> recordHeld,recordChord;bool wasRecording=false,wasResting=false,wasOverdubbing=false,liveFresh=false;std::atomic<bool> loadingPreset{false};dsp::Phaser<float> phaser;CharacterDelay echo;OrbitReverb reverb;NoteHold hold;
- VoiceAllocator voices8,voices6;EnsembleChorus chorus;dsp::Oversampling<float> drivePass{2,1,dsp::Oversampling<float>::filterHalfBandPolyphaseIIR,true,false};int driveBlock=512;SmoothedValue<float> gain;int lastMode=-1;
+ double sampleRate=44100;Arpeggiator arp;Arpeggiator::Sequence sequence;SpinLock sequenceLock;Array<int> recordHeld,recordChord;bool wasRecording=false,wasResting=false,wasOverdubbing=false,liveFresh=false;std::atomic<bool> loadingPreset{false};NoteHold hold;
+ ParamLayer sequenceLayer;Engine main,sequenceSound;AudioBuffer<float> sequenceBuffer;int sequenceTail=0;bool wasLayered=false;
 };
 #include "Editor.h"
 AudioProcessorEditor* Orbit::createEditor(){return new Editor(*this);}

@@ -1,5 +1,15 @@
 #pragma once
 #include "OscillatorBank.h"
+#include <unordered_map>
+// A frozen copy of every parameter, read in place of the panel by a second sound (the sequence's own sound in LIVE).
+struct ParamLayer {
+ void build(AudioProcessorValueTreeState& s,const Array<AudioProcessorParameter*>& all){index.clear();int n=0;
+  for(auto* base:all)if(auto* p=dynamic_cast<RangedAudioParameter*>(base))if(auto* a=s.getRawParameterValue(p->paramID))index[a]=n++;
+  values.reset(new std::atomic<float>[size_t(jmax(1,n))]);capture();}
+ void capture(){for(const auto& [a,i]:index)values[size_t(i)].store(a->load());} // no allocation: safe on the audio thread
+ float get(const std::atomic<float>* a) const {const auto it=index.find(a);return it==index.end()?a->load():values[size_t(it->second)].load();}
+ std::unordered_map<const std::atomic<float>*,int> index;std::unique_ptr<std::atomic<float>[]> values;
+};
 // Envelope with curved segments, shaped like the charge and discharge of a capacitor rather than
 // straight lines. Attack bends towards a target above full level, so it rises fast then eases in and
 // still arrives at full level in the set time. Decay and release fall quickly at first and then
@@ -113,9 +123,9 @@ struct HalfBand {
 };
 class Voice : public SynthesiserVoice {
 public:
- Voice(AudioProcessorValueTreeState& s,GlideMemory& previous,const ModulationBus& shared) : state(s),previousPitch(previous),bus(shared) {}
+ Voice(AudioProcessorValueTreeState& s,GlideMemory& previous,const ModulationBus& shared,const ParamLayer* frozen=nullptr) : state(s),previousPitch(previous),bus(shared),layer(frozen) {}
  bool canPlaySound(SynthesiserSound* s) override { return dynamic_cast<Sound*>(s)!=nullptr; }
- float p(const char* key) const {return state.getRawParameterValue(key)->load();}
+ float p(const char* key) const {const auto* a=state.getRawParameterValue(key);return layer!=nullptr?layer->get(a):a->load();}
  void setVoiceIndex(int index){oscillators.setVoiceIndex(index);
   // Fixed per-voice differences, balanced over the eight voices so that the instrument as a whole stays centred.
   static constexpr float cutoffs[8]={.2f,-.6f,.5f,-.9f,.75f,-.3f,.95f,-.6f},times[8]={-.4f,.7f,-.85f,.3f,.9f,-.6f,.15f,-.2f};
@@ -255,7 +265,7 @@ public:
   }
  }
 private:
- AudioProcessorValueTreeState& state;GlideMemory& previousPitch;uint64 serial=0;const ModulationBus& bus;SmoothedValue<double> pitch;Contour env,filterEnv,gate;FilterSlot a,b;HalfBand down;OscillatorBank oscillators;dsp::StateVariableTPTFilter<float> highpass;
+ AudioProcessorValueTreeState& state;GlideMemory& previousPitch;uint64 serial=0;const ModulationBus& bus;const ParamLayer* layer=nullptr;SmoothedValue<double> pitch;Contour env,filterEnv,gate;FilterSlot a,b;HalfBand down;OscillatorBank oscillators;dsp::StateVariableTPTFilter<float> highpass;
  float cutNow=0,cutBNow=0,lastL=0,lastR=0,tailL=0,tailR=0;bool fresh=true,pitched=false;
  double hz=440;float vel=0,wheel=0,unisonCents=0,voiceGain=1,lfoAge=0,bass=0,pan=0,dc=0;
  float pressure=0,pressureNow=0,lfoLast=0,manualLevel=0;double trigPhase=0,lfoOffset=0;bool held=false;

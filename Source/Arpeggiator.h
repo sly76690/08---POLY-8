@@ -41,10 +41,12 @@ public:
  void reset(){held.fill(0);heldCount=0;remaining=gate=0;activeCount=0;step=0;wasEnabled=false;}
  // samplesToGrid: when >= 0, the number of samples from the start of this block to the next step of the host's
  // beat grid; steps then fall on the grid instead of starting with the first key.
- void process(juce::MidiBuffer& input,int samples,bool enabled,double bpm,int division,int pattern,int octaves,float gateRatio,double samplesToGrid=-1.,const Sequence* sequence=nullptr,bool passNotes=false,bool capture=false) {
-  output.clear();capturedCount=0;
+ void process(juce::MidiBuffer& input,int samples,bool enabled,double bpm,int division,int pattern,int octaves,float gateRatio,double samplesToGrid=-1.,const Sequence* sequence=nullptr,bool passNotes=false,bool capture=false,bool split=false) {
+  output.clear();sequenceOutput.clear();capturedCount=0;
+  // SPLIT (LIVE): the sequence's notes go to sequenceOutput, for a sound of their own; switching ends the notes sounding.
+  if(split!=splitting){stop(0);splitting=split;}
   if(enabled!=wasEnabled) {
-   for(int ch=1;ch<=16;++ch) output.addEvent(juce::MidiMessage::allNotesOff(ch),0);
+   for(int ch=1;ch<=16;++ch){output.addEvent(juce::MidiMessage::allNotesOff(ch),0);sequenceOutput.addEvent(juce::MidiMessage::allNotesOff(ch),0);}
    activeCount=0;remaining=gate=0;step=0;
    if(!enabled) for(int key=0;key<2048;++key) if(held[size_t(key)]>0) output.addEvent(juce::MidiMessage::noteOn(key/128+1,key%128,held[size_t(key)]),0);
    wasEnabled=enabled;
@@ -82,7 +84,7 @@ public:
      const int index=step%sequence->length;position.store(index);const int shift=lowest<0?0:lowest%128-sequence->root,channel=lowest<0?0:lowest/128;
      for(int k=0;k<sequence->count[size_t(index)]&&activeCount<int(activeNotes.size());++k){
       const int note=juce::jlimit(0,127,sequence->notes[size_t(index)][size_t(k)]+shift);if(skip[size_t(note)])continue;activeNotes[size_t(activeCount++)]=channel*128+note;
-      output.addEvent(juce::MidiMessage::noteOn(channel+1,note,velocity),sample);}
+      (splitting?sequenceOutput:output).addEvent(juce::MidiMessage::noteOn(channel+1,note,velocity),sample);}
      skip.fill(false);
      step=(step+1)%1000000;gate=juce::jmax(1,int(interval*gateRatio));remaining=interval-1;continue;
     }
@@ -97,7 +99,8 @@ public:
   input.swapWith(output);
  }
 private:
- void stop(int sample){for(int i=0;i<activeCount;++i){const int a=activeNotes[size_t(i)];output.addEvent(juce::MidiMessage::noteOff(a/128+1,a%128),sample);}activeCount=0;}
+ void stop(int sample){auto& dest=splitting?sequenceOutput:output;for(int i=0;i<activeCount;++i){const int a=activeNotes[size_t(i)];dest.addEvent(juce::MidiMessage::noteOff(a/128+1,a%128),sample);}activeCount=0;}
+ public: juce::MidiBuffer sequenceOutput;bool splitting=false; // the sequence's notes while split
  public: std::array<int,64> capturedStep{},capturedNote{};int capturedCount=0; // keys caught by capture, for the processor to write
  public: std::atomic<int> position{0}; // the sequence step last played, for the panel
  private:

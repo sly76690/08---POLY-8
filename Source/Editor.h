@@ -936,7 +936,7 @@ private:
   const int steps = orbit.sequenceLength();
   if (orbit.state.getRawParameterValue("seqOvd")->load() > .5f) shown = "SEQ OVERDUB    " + String(steps) + " STEPS    QUANTIZED";
   else if (orbit.state.getRawParameterValue("seqRec")->load() > .5f) shown = "SEQ REC    STEP " + String(steps + 1) + " / 64    REST = SILENCE";
-  else if (orbit.state.getRawParameterValue("seqPlay")->load() > .5f) shown = (orbit.sequenceSlot() >= 0 ? "SEQ " + String(orbit.sequenceSlot() + 1) : String("SEQ PLAY")) + "    " + String(steps) + " STEPS    " + (orbit.state.getRawParameterValue("seqLive")->load() > .5f ? "KEYS PLAY OVER" : "KEY = TRANSPOSE");
+  else if (orbit.state.getRawParameterValue("seqPlay")->load() > .5f) shown = (orbit.sequenceSlot() >= 0 ? "SEQ " + String(orbit.sequenceSlot() + 1) : String("SEQ PLAY")) + "    " + String(steps) + " STEPS    " + (orbit.state.getRawParameterValue("seqLive")->load() > .5f ? "KEYS: PANEL SOUND    SEQ: ITS OWN" : "KEY = TRANSPOSE");
   sequenceEditor.refresh();
   if (recKey != nullptr) { const bool rec = orbit.state.getRawParameterValue("seqRec")->load() > .5f, ovd = orbit.state.getRawParameterValue("seqOvd")->load() > .5f;
    recKey->setToggleState(rec || ovd, dontSendNotification); recKey->setButtonText(ovd ? "OVD" : "REC");
