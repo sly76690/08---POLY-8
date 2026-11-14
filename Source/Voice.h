@@ -75,19 +75,23 @@ private:
   const float pending=keep*(G2*G*ladder[0]+G2*ladder[1]+G*ladder[2]+ladder[3]);
   // The signal enters at a low level so the saturation inside the loop only bites on the resonant peak (the
   // resonance builds up instead of being flattened); the lows the resonance takes away are given back at the output.
-  float y=(x*inputLevel-feedback*pending)/(1.f+feedback*G2*G2);
+  // Self-oscillation (feedback above the calibrated maximum) is kept to the low and middle range: it fades out between
+  // 2 and 6 kHz, where a whistle only hurts, and the sine it makes comes out well below a full saw.
+  const float over=jmax(0.f,feedback-maxFeedback),sing=over>0.f?jlimit(0.f,1.f,(6000.f-cutoff)/4000.f):0.f;
+  const float fb=over>0.f?maxFeedback+over*sing:feedback;
+  float y=(x*inputLevel-fb*pending)/(1.f+fb*G2*G2);
   y=std::tanh(y*drive)/drive;
   float tap=0;
   for(size_t n=0;n<4;++n){const float v=(y-ladder[n])*G; y=v+ladder[n]; ladder[n]=y+v; if(n==1)tap=y;}
   // Output stage with headroom: it only rounds off real peaks, so a resonant peak and an envelope sweep stand out
   // above the rest of the sound instead of being flattened into it.
-  return std::tanh((stages?y:tap)/inputLevel*outputLevel*(1.f+bassReturn*jmin(feedback,maxFeedback))*outputHeadroom)/outputHeadroom*.85f;
+  return (1.f-selfOscillationCut*sing)*std::tanh((stages?y:tap)/inputLevel*outputLevel*(1.f+bassReturn*jmin(feedback,maxFeedback))*outputHeadroom)/outputHeadroom*.85f;
  }
  std::array<float,4> ladder{}; std::array<dsp::StateVariableTPTFilter<float>,2> svf; float sampleRate=44100.f,feedback=.4f,drive=1.2f,ladderScale=cutoffScale; int type=0,stages=1;
  // Ladder voicing, measured against the state-variable model and to adjust by ear.
  // Poly 8: the last steps of RES (above 9) push the loop past self-oscillation, so the ladder sings on its own as a sine
  // at FREQ; below that the response is unchanged from Orbit's calibrated curve.
- static constexpr float inputLevel=.2f,outputLevel=1.8f,bassReturn=.45f,maxFeedback=2.2f,selfOscillation=1.95f,resonanceCurve=1.f,cutoffScale=2.f,outputHeadroom=.35f;
+ static constexpr float inputLevel=.2f,outputLevel=1.8f,bassReturn=.45f,maxFeedback=2.2f,selfOscillation=1.95f,selfOscillationCut=.8f,resonanceCurve=1.f,cutoffScale=2.f,outputHeadroom=.35f;
 };
 // What the voices of one instrument share for the glide: the pitch the most recent note is sounding at right now
 // (in Hz, part-way through its own glide if it has one), and a count of note starts that tells which note that is.

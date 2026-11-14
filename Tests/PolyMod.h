@@ -49,11 +49,13 @@ static bool polyModTests(){
  if(!require(diff(dry,filtered)>.001,"POLY-MOD > FILTER inactive"))return false;
  for(float v:filtered)if(!require(std::isfinite(v)&&std::abs(v)<4.f,"POLY-MOD > FILTER unstable"))return false;
  // Ladder at the top of RES: rings on by itself after a short click (self-oscillation), stays bounded; at RES 5 it dies away.
- {auto ring=[](float resonance){poly8test::FilterSlot f;f.prepare(96000);f.setDrive(1.2f);f.configure(0,1,resonance);double tail=0,peak=0;
-   for(int i=0;i<96000;++i){float y=f.process(i<20?1.f:0.f,1000.f);if(!std::isfinite(y))return -1.0;peak=std::max(peak,double(std::abs(y)));if(i>86400)tail+=double(y)*y;}
+ {auto ring=[](float resonance,float hz=1000.f){poly8test::FilterSlot f;f.prepare(96000);f.setDrive(1.2f);f.configure(0,1,resonance);double tail=0,peak=0;
+   for(int i=0;i<96000;++i){float y=f.process(i<20?1.f:0.f,hz);if(!std::isfinite(y))return -1.0;peak=std::max(peak,double(std::abs(y)));if(i>86400)tail+=double(y)*y;}
    return peak>4.?-1.:std::sqrt(tail/9600.);};
   const double singing=ring(.95f),damped=ring(.5f),edge=ring(.88f);
   if(!require(edge>=0&&edge<1.e-3,"ladder self-oscillates below RES 9"))return false;
+  const double high=ring(.95f,9000.f);if(!require(high>=0&&high<1.e-3,"ladder whistles in the treble at full RES"))return false;
+  if(!require(singing<.35,"ladder self-oscillation too loud"))return false;
   if(!require(singing>.05,"ladder does not self-oscillate at full RES"))return false;
   if(!require(damped>=0&&damped<1.e-3,"ladder keeps ringing at half RES"))return false;
   std::cout<<"  ladder self-oscillation: tail rms "<<juce::Decibels::gainToDecibels(singing)<<" dB at RES 10\n";}
