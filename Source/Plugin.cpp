@@ -307,7 +307,8 @@ public:
   {const SpinLock::ScopedLockType lock(sequenceLock);
    if(recording&&!wasRecording){sequence.clear();recordHeld.clearQuick();recordChord.clearQuick();currentSequenceSlot.store(-1);}
    const int editing=editStep.load();
-   if(recording||(editing>=0&&!play)){for(const auto meta:midi){const auto msg=meta.getMessage();
+   // EDIT works while the sequence plays too: the keys are then heard and written, not used to transpose.
+   if(recording||editing>=0){for(const auto meta:midi){const auto msg=meta.getMessage();
      if(msg.isNoteOn()){recordHeld.addIfNotAlreadyThere(msg.getNoteNumber());recordChord.addIfNotAlreadyThere(msg.getNoteNumber());}
      else if(msg.isNoteOff()){recordHeld.removeFirstMatchingValue(msg.getNoteNumber());
       if(recordHeld.isEmpty()&&!recordChord.isEmpty()){recordChord.sort();
@@ -320,7 +321,7 @@ public:
    if(overdub&&sequence.length>0)for(const auto meta:midi){const auto msg=meta.getMessage();if(msg.isNoteOn())sequence.merge(arp.position.load(),msg.getNoteNumber());}
    if(overdub&&!wasOverdubbing)currentSequenceSlot.store(-1);
    wasRecording=recording;wasOverdubbing=overdub;wasResting=rest;sequenceSteps.store(sequence.length);
-   arp.process(midi,buffer.getNumSamples(),value("arpOn")>.5f||playing,bpm,division,playing?4:int(value("arpPattern")),int(value("arpOctaves"))+1,value("arpGate"),samplesToGrid,&sequence,overdub);}
+   arp.process(midi,buffer.getNumSamples(),value("arpOn")>.5f||playing,bpm,division,playing?4:int(value("arpPattern")),int(value("arpOctaves"))+1,value("arpGate"),samplesToGrid,&sequence,overdub||editing>=0);}
   int mode=state.getRawParameterValue("mode")->load()>0.5f?1:0;
   voices8.updateMode();voices6.updateMode();
   if(mode!=lastMode) {voices8.allNotesOff(0,false);voices6.allNotesOff(0,false);lastMode=mode;}
