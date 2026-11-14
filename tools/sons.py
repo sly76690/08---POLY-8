@@ -83,6 +83,34 @@ SOUNDS = {
         attack=.002, decay=.3, sustain=.4, release=.2, fattack=.001, fdecay=.2, fsustain=0, frelease=.15,
         arpTempo=110, arpDivision=2, arpGate=.6, atFilter=.3, delaySync=6, delayFeedback=.4, delayMix=.18, reverbMix=.12, gain=1.0,
         sequence="60;67;72;67;63;70;75;70;58;65;70;65;62;69;74;69"),
+
+    # ---- DARKSYNTH: the hard-driven 80s horror-synth style (genre traits only: driven saws, octave basslines at
+    # 16ths, sync screams, gated stabs). Original patches and sequences, no melody of any record.
+    "DARK - Chase Bass": dict(BASE, voiceMode=1, vco1Wave=.33, vco2Wave=.33, detune=8, vcoSub=.6, osc2Octave=2,
+        cutoff=520, resonance=.4, env=.6, keytrack=.5, attack=.001, decay=.18, sustain=.35, release=.06, fattack=.001, fdecay=.14, fsustain=.1, frelease=.08,
+        voiceDrive=.8, fxDrive=.35, arpTempo=124, arpDivision=2, arpGate=.5, atFilter=.3, voiceWidth=.2, gain=.8,
+        sequence="30;42;30;42;30;42;30;42;28;40;28;40;33;45;31;43"),
+    "DARK - Razor Lead": dict(BASE, voiceMode=2, unisonSpread=16, oscLayer=.65, oscSync=1, osc2Tune=7, polyEnv=.4, vco1Wave=.33, vco2Wave=.33,
+        cutoff=2800, resonance=.25, env=.3, attack=.002, decay=.5, sustain=.8, release=.25, fattack=.001, fdecay=.7, fsustain=.3, frelease=.3,
+        voiceDrive=.7, fxDrive=.3, legato=1, portamento=.04, wheelDepth=.5, lfoDelay=.4, rate=6, delaySync=5, delayFeedback=.35, delayMix=.15,
+        reverbType=1, reverbMix=.15, atDrive=.4, gain=.3),
+    "DARK - Blood Stabs": dict(BASE, vco1Wave=.36, vco2Wave=.36, detune=12, cutoff=1400, resonance=.2, env=.55,
+        attack=.002, decay=.22, sustain=0, release=.12, fattack=.001, fdecay=.18, fsustain=0, frelease=.1, velFilter=.4,
+        voiceDrive=.6, fxDrive=.3, reverbType=1, reverbSize=.6, reverbMix=.2, delaySync=6, delayFeedback=.25, delayMix=.12, gain=1.0),
+    "DARK - Gated Chords": dict(BASE, vco1Wave=.5, vco2Wave=.4, detune=9, cutoff=1700, resonance=.25, env=.35,
+        attack=.002, decay=.12, sustain=.6, release=.05, fattack=.001, fdecay=.15, fsustain=.4, frelease=.05,
+        arpTempo=124, arpDivision=2, arpGate=.4, voiceDrive=.5, chorusMode=1, chorus=.25, reverbMix=.12, gain=.9,
+        sequence="54,57,61;54,57,61;r;54,57,61;52,56,59;r;52,56,59;r;50,54,57;50,54,57;r;50,54,57;49,52,56;r;49,52,56;r"),
+    "DARK - Siren Sweep": dict(BASE, oscLayer=1, vco1Wave=.66, vco2Wave=.33, osc1Octave=2, polyOsc=.35, polyEnv=.6, polyFilter=1,
+        cutoff=1800, resonance=.6, env=.5, attack=.01, decay=2.5, sustain=.5, release=1.5, fattack=1.5, fdecay=2.0, fsustain=.3, frelease=1.5,
+        voiceDrive=.6, rate=.3, lfoFilter=.6, reverbType=2, reverbSize=.85, reverbMix=.3, delaySync=4, delayFeedback=.5, delayMix=.2, gain=.55),
+    "DARK - Fog Cathedral": dict(BASE, vco1Wave=.33, vco2Wave=.66, detune=15, osc2Octave=2, cutoff=900, resonance=.35, env=.3,
+        attack=2.0, decay=3.0, sustain=.9, release=5.0, fattack=3.0, fdecay=4.0, fsustain=.5, frelease=5.0, voiceDrive=.4,
+        phaserOn=1, phaserRate=.08, phaserDepth=.7, phaserFeedback=.55, phaserMix=.45, reverbType=2, reverbSize=.95, reverbMix=.35, gain=.6),
+    "DARK - Night Pulse": dict(BASE, vco1Wave=.8, vco2Wave=.66, detune=6, cutoff=1100, resonance=.45, env=.45,
+        attack=.001, decay=.2, sustain=.2, release=.1, fattack=.001, fdecay=.16, fsustain=0, frelease=.1, voiceDrive=.5,
+        arpTempo=124, arpDivision=2, arpGate=.45, delaySync=8, delayFeedback=.45, delayMix=.18, reverbMix=.15, gain=1.0,
+        sequence="66;73;78;73;66;73;76;73;64;71;76;71;61;68;73;68"),
 }
 
 folder = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "Presets", "Sounds")
