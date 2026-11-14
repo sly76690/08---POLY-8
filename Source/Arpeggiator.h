@@ -52,7 +52,7 @@ public:
     if(pattern==4&&sequence!=nullptr&&sequence->length>0){ // SEQ: the recorded step, moved by the lowest held key
      int lowest=-1;float velocity=0;for(int key=0;key<2048;++key)if(held[size_t(key)]>0&&(lowest<0||key%128<lowest%128)){lowest=key;velocity=held[size_t(key)];}
      if(lowest<0)velocity=.8f; // no key held: the sequence as recorded
-     const int index=step%sequence->length,shift=lowest<0?0:lowest%128-sequence->root,channel=lowest<0?0:lowest/128;
+     const int index=step%sequence->length;position.store(index);const int shift=lowest<0?0:lowest%128-sequence->root,channel=lowest<0?0:lowest/128;
      for(int k=0;k<sequence->count[size_t(index)]&&activeCount<int(activeNotes.size());++k){
       const int note=juce::jlimit(0,127,sequence->notes[size_t(index)][size_t(k)]+shift);activeNotes[size_t(activeCount++)]=channel*128+note;
       output.addEvent(juce::MidiMessage::noteOn(channel+1,note,velocity),sample);}
@@ -70,6 +70,8 @@ public:
  }
 private:
  void stop(int sample){for(int i=0;i<activeCount;++i){const int a=activeNotes[size_t(i)];output.addEvent(juce::MidiMessage::noteOff(a/128+1,a%128),sample);}activeCount=0;}
+ public: std::atomic<int> position{0}; // the sequence step last played, for the panel
+ private:
  double sr=44100;int heldCount=0,remaining=0,gate=0,activeCount=0,step=0;bool wasEnabled=false;std::array<int,16> activeNotes{};
  std::array<float,2048> held{};std::array<int,6144> notes{};std::array<float,6144> velocities{};juce::MidiBuffer output;juce::Random random{106};
 };

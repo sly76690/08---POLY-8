@@ -58,6 +58,7 @@ public:
  bool loadSequence(int slot){if(!isPositiveAndBelow(slot,sequenceSlots)||!sequenceSlotUsed(slot))return false;const auto text=sequenceFile(slot).loadFileAsString();
   {const SpinLock::ScopedLockType lock(sequenceLock);sequence.fromString(text);sequenceSteps.store(sequence.length);}currentSequenceSlot.store(slot);return true;}
  int sequenceSlot() const {return currentSequenceSlot.load();}
+ int sequencePosition() const {return arp.position.load();}
  std::atomic<int> currentSequenceSlot{-1};
  int sequenceLength() const {return sequenceSteps.load();}
  std::atomic<int> sequenceSteps{0};
