@@ -36,5 +36,5 @@
   <PARAM id="reverbType" value="2.0"/>
   <PARAM id="reverbSize" value="0.8"/>
   <PARAM id="reverbMix" value="0.26"/>
-  <PARAM id="gain" value="0.55"/>
+  <PARAM id="gain" value="0.45"/>
 </OrbitState>

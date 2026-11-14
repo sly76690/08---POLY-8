@@ -29,5 +29,5 @@
   <PARAM id="atVolume" value="0.3"/>
   <PARAM id="wheelDepth" value="0.25"/>
   <PARAM id="reverbMix" value="0.2"/>
-  <PARAM id="gain" value="0.58"/>
+  <PARAM id="gain" value="0.5"/>
 </OrbitState>

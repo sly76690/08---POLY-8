@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<OrbitState stateVersion="5" program="0" modified="0">
+<OrbitState stateVersion="5" program="0" modified="0" sequence="60;67;72;67;63;70;75;70;58;65;70;65;62;69;74;69">
   <PARAM id="mode" value="1.0"/>
   <PARAM id="jupiterMix" value="1.0"/>
   <PARAM id="osc1Shape" value="6.0"/>
@@ -26,11 +26,8 @@
   <PARAM id="fdecay" value="0.2"/>
   <PARAM id="fsustain" value="0.0"/>
   <PARAM id="frelease" value="0.15"/>
-  <PARAM id="arpOn" value="1.0"/>
-  <PARAM id="arpDivision" value="2.0"/>
   <PARAM id="arpTempo" value="110.0"/>
-  <PARAM id="arpPattern" value="2.0"/>
-  <PARAM id="arpOctaves" value="1.0"/>
+  <PARAM id="arpDivision" value="2.0"/>
   <PARAM id="arpGate" value="0.6"/>
   <PARAM id="atFilter" value="0.3"/>
   <PARAM id="delaySync" value="6.0"/>
