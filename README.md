@@ -23,7 +23,7 @@ bash tools/paquet.sh
 - **Deux VCO par voix** avec un **SHAPE continu** (triangle → dent de scie → carré → impulsion étroite), sync, cross-mod.
 - **MIXER** : balance VCO 1 / VCO 2, SUB (carré une octave sous le VCO 1), NOISE, VCO PWM.
 - **POLY-MOD** : enveloppe du filtre et VCO 1 (dosages bipolaires) vers FREQ 2, PW 2 et FILTER (les deux filtres), voix par voix.
-- **27 sons d'usine** Octant (`python3 tools/sons.py`), programmés de zéro, dont 7 sons DARK (darksynth) et 6 sons avec séquence (appuyer sur PLAY).
+- **29 sons d'usine** Octant (`python3 tools/sons.py`), programmés de zéro, dont 9 sons DARK (darksynth) et 6 sons avec séquence (appuyer sur PLAY).
 - Le DCO hérité d'Orbit reste dans le moteur (paramètres cachés) pour relire les anciens patchs.
 - **Ladder** : au-dessus de RES 9 il auto-oscille (sinus sur FREQ) ; en dessous, courbe d'Orbit inchangée. HPF : passe-haut 2 pôles sans résonance (fader HPF du FILTER A).
 - Façade : bandeaux gris acier, texte noir ; logo O8 bleu et gris clair.
