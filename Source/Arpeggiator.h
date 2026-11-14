@@ -19,6 +19,13 @@ public:
    for(int i=0;i<c;++i)if(notes[size_t(index)][size_t(i)]==note)return;if(c>=maxNotes)return;
    int at=c;while(at>0&&notes[size_t(index)][size_t(at-1)]>note){notes[size_t(index)][size_t(at)]=notes[size_t(index)][size_t(at-1)];dubbed[size_t(index)][size_t(at)]=dubbed[size_t(index)][size_t(at-1)];--at;}
    notes[size_t(index)][size_t(at)]=note;dubbed[size_t(index)][size_t(at)]=dub;++c;} // kept in pitch order; the root stays // the root stays: added notes do not move the transposition
+  // Lanes: the recorded notes (dub false) and the overdubbed ones (dub true) are edited apart.
+  void clearLane(int index,bool dub){if(!juce::isPositiveAndBelow(index,length))return;auto& c=count[size_t(index)];int kept=0;
+   for(int i=0;i<c;++i)if(dubbed[size_t(index)][size_t(i)]!=dub){notes[size_t(index)][size_t(kept)]=notes[size_t(index)][size_t(i)];dubbed[size_t(index)][size_t(kept++)]=dubbed[size_t(index)][size_t(i)];}
+   c=kept;if(!dub)updateRoot();}
+  void setLane(int index,const int* chord,int n,bool dub){clearLane(index,dub);for(int i=0;i<n;++i)merge(index,chord[i],dub);if(!dub)updateRoot();}
+  void clearOverdub(){for(int i=0;i<length;++i)clearLane(i,true);}
+  void mergeOverdub(){for(int i=0;i<length;++i)for(int k=0;k<count[size_t(i)];++k)dubbed[size_t(i)][size_t(k)]=false;}
   void insertAfter(int index){if(length>=maxSteps)return;index=juce::jlimit(-1,length-1,index);for(int i=length;i>index+1;--i){notes[size_t(i)]=notes[size_t(i-1)];dubbed[size_t(i)]=dubbed[size_t(i-1)];count[size_t(i)]=count[size_t(i-1)];}
    count[size_t(index+1)]=0;++length;}
   void remove(int index){if(!juce::isPositiveAndBelow(index,length))return;for(int i=index;i<length-1;++i){notes[size_t(i)]=notes[size_t(i+1)];dubbed[size_t(i)]=dubbed[size_t(i+1)];count[size_t(i)]=count[size_t(i+1)];}--length;updateRoot();}

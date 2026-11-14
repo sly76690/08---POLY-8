@@ -60,7 +60,7 @@ public:
  int sequenceSlot() const {return currentSequenceSlot.load();}
  int sequencePosition() const {return arp.position.load();}
  // Step editing from the panel (message thread). editStep: the selected step, -1 when the editor is closed.
- std::atomic<int> editStep{-1};std::atomic<bool> editAdds{false};
+ std::atomic<int> editStep{-1};std::atomic<bool> editAdds{false},editLane{false}; // editLane: false = SEQ (recorded) line, true = OVD line
  Arpeggiator::Sequence sequenceCopy(){const SpinLock::ScopedLockType lock(sequenceLock);return sequence;}
  void editSequence(const std::function<void(Arpeggiator::Sequence&)>& change){{const SpinLock::ScopedLockType lock(sequenceLock);change(sequence);sequenceSteps.store(sequence.length);}currentSequenceSlot.store(-1);}
  std::atomic<int> currentSequenceSlot{-1};
@@ -315,7 +315,7 @@ public:
      else if(msg.isNoteOff()){recordHeld.removeFirstMatchingValue(msg.getNoteNumber());
       if(recordHeld.isEmpty()&&!recordChord.isEmpty()){recordChord.sort();
        if(recording)sequence.add(recordChord.getRawDataPointer(),recordChord.size());
-       else{if(editAdds.load())for(int n:recordChord)sequence.merge(editing,n);else sequence.set(editing,recordChord.getRawDataPointer(),recordChord.size());
+       else{const bool lane=editLane.load();if(editAdds.load()){for(int n:recordChord)sequence.merge(editing,n,lane);}else sequence.setLane(editing,recordChord.getRawDataPointer(),recordChord.size(),lane);
         editStep.store(jmin(editing+1,jmax(0,sequence.length-1)));}
        recordChord.clearQuick();}}}
     if(recording&&rest&&!wasResting&&recordHeld.isEmpty())sequence.add(nullptr,0);}

@@ -939,7 +939,7 @@ private:
   if (recKey != nullptr) { const bool rec = orbit.state.getRawParameterValue("seqRec")->load() > .5f, ovd = orbit.state.getRawParameterValue("seqOvd")->load() > .5f;
    recKey->setToggleState(rec || ovd, dontSendNotification); recKey->setButtonText(ovd ? "OVD" : "REC");
    if (ovd != recKey->getProperties().contains("ledBlue")) { if (ovd) recKey->getProperties().set("ledBlue", true); else recKey->getProperties().remove("ledBlue"); recKey->repaint(); } }
-  if (orbit.editStep.load() >= 0) shown = "SEQ EDIT    STEP " + String(orbit.editStep.load() + 1).paddedLeft('0', 2) + " / " + String(steps).paddedLeft('0', 2) + "    PLAY A NOTE OR CHORD";
+  if (orbit.editStep.load() >= 0) shown = "SEQ EDIT    STEP " + String(orbit.editStep.load() + 1).paddedLeft('0', 2) + " / " + String(steps).paddedLeft('0', 2) + (orbit.editLane.load() ? "    OVD LINE" : "    SEQ LINE");
   if (seqStepLabel != nullptr) { const bool rec = orbit.state.getRawParameterValue("seqRec")->load() > .5f, play = orbit.state.getRawParameterValue("seqPlay")->load() > .5f;
    const String text = rec ? "REC " + String(steps + 1).paddedLeft('0', 2) : play && steps > 0 ? String(orbit.sequencePosition() + 1).paddedLeft('0', 2) + "/" + String(steps).paddedLeft('0', 2) : String(steps) + " ST";
    if (seqStepLabel->getText() != text) seqStepLabel->setText(text, dontSendNotification); }
@@ -976,41 +976,51 @@ private:
  // the selected step. The audio side does the replacing, so the keys are heard while editing.
  struct SequenceEditor : Component {
   explicit SequenceEditor(Orbit& o):orbit(o){
-   for(auto* b:{&prev,&next,&add,&rest,&insert,&remove,&done}){addAndMakeVisible(*b);b->setWantsKeyboardFocus(false);b->getProperties().set("fontSize",12.f);}
+   for(auto* b:{&prev,&next,&add,&rest,&insert,&remove,&clearOvd,&mergeOvd,&done}){addAndMakeVisible(*b);b->setWantsKeyboardFocus(false);b->getProperties().set("fontSize",12.f);}
    add.setClickingTogglesState(true);setWantsKeyboardFocus(false);
-   prev.onClick=[this]{select(orbit.editStep.load()-1);};next.onClick=[this]{select(orbit.editStep.load()+1);};
-   add.onClick=[this]{orbit.editAdds.store(add.getToggleState());};
-   rest.onClick=[this]{const int i=orbit.editStep.load();orbit.editSequence([i](Arpeggiator::Sequence& q){q.set(i,nullptr,0);});};
-   insert.onClick=[this]{const int i=orbit.editStep.load();orbit.editSequence([i](Arpeggiator::Sequence& q){q.insertAfter(i);});select(i+1);};
-   remove.onClick=[this]{const int i=orbit.editStep.load();orbit.editSequence([i](Arpeggiator::Sequence& q){q.remove(i);});select(i);};
+   prev.onClick=[this]{select(orbit.editStep.load()-1,lane());};next.onClick=[this]{select(orbit.editStep.load()+1,lane());};
+   add.onClick=[this]{orbit.editAdds.store(add.getToggleState());repaint();};
+   rest.onClick=[this]{const int i=orbit.editStep.load();const bool l=lane();orbit.editSequence([i,l](Arpeggiator::Sequence& q){q.clearLane(i,l);});};
+   insert.onClick=[this]{const int i=orbit.editStep.load();orbit.editSequence([i](Arpeggiator::Sequence& q){q.insertAfter(i);});select(i+1,lane());};
+   remove.onClick=[this]{const int i=orbit.editStep.load();orbit.editSequence([i](Arpeggiator::Sequence& q){q.remove(i);});select(i,lane());};
+   clearOvd.onClick=[this]{orbit.editSequence([](Arpeggiator::Sequence& q){q.clearOverdub();});};
+   mergeOvd.onClick=[this]{orbit.editSequence([](Arpeggiator::Sequence& q){q.mergeOverdub();});};
    done.onClick=[this]{if(onClose)onClose();};
   }
-  void open(){if(orbit.sequenceLength()==0)orbit.editSequence([](Arpeggiator::Sequence& q){q.insertAfter(-1);});orbit.editAdds.store(add.getToggleState());select(jmax(0,orbit.editStep.load()));setVisible(true);toFront(false);}
+  bool lane() const {return orbit.editLane.load();}
+  void open(){if(orbit.sequenceLength()==0)orbit.editSequence([](Arpeggiator::Sequence& q){q.insertAfter(-1);});orbit.editAdds.store(add.getToggleState());select(jmax(0,orbit.editStep.load()),lane());setVisible(true);toFront(false);}
   void close(){orbit.editStep.store(-1);setVisible(false);}
-  void select(int i){orbit.editStep.store(jlimit(0,jmax(0,orbit.sequenceLength()-1),i));refresh(true);}
-  void refresh(bool force=false){if(!isVisible())return;const auto text=orbit.sequenceText();const int at=orbit.editStep.load();if(force||text!=shownText||at!=shownStep){shownText=text;shownStep=at;sequence=orbit.sequenceCopy();repaint();}}
-  Rectangle<int> cell(int i) const {const int w=(getWidth()-24)/16;return {12+(i%16)*w,40+(i/16)*62,w-4,58};}
+  void select(int i,bool overdubLine){orbit.editLane.store(overdubLine);orbit.editStep.store(jlimit(0,jmax(0,orbit.sequenceLength()-1),i));refresh(true);}
+  void refresh(bool force=false){if(!isVisible())return;const auto text=orbit.sequenceText();const int at=orbit.editStep.load()*2+(lane()?1:0);
+   if(force||text!=shownText||at!=shownStep){shownText=text;shownStep=at;sequence=orbit.sequenceCopy();repaint();}}
+  // 16 steps a row, each step two cells: the recorded notes (SEQ) over the overdubbed ones (OVD, blue).
+  Rectangle<int> stepArea(int i) const {const int w=(getWidth()-64)/16;return {52+(i%16)*w,40+(i/16)*66,w-4,62};}
+  Rectangle<int> laneCell(int i,bool dub) const {auto r=stepArea(i);return dub?r.withTrimmedTop(32):r.withHeight(30);}
   void resized() override {auto row=Rectangle<int>(12,getHeight()-46,getWidth()-24,34);
-   for(auto* b:{&prev,&next,&add,&rest,&insert,&remove}){b->setBounds(row.removeFromLeft(96).reduced(4,0));}done.setBounds(row.removeFromRight(110).reduced(4,0));}
-  void paint(Graphics& g) override {using namespace orbitui;
+   for(auto* b:{&prev,&next,&add,&rest,&insert,&remove,&clearOvd,&mergeOvd})b->setBounds(row.removeFromLeft(118).reduced(4,0));done.setBounds(row.removeFromRight(110).reduced(4,0));}
+  void paint(Graphics& g) override {using namespace orbitui;const Colour blue(0xff6cc4ff);
    g.setColour(Colour(0xff0b0c0d));g.fillRoundedRectangle(getLocalBounds().toFloat(),6);g.setColour(teal);g.drawRoundedRectangle(getLocalBounds().toFloat().reduced(1),6,2);
    g.setColour(ink);g.setFont(face(18.f,true));g.drawText("SEQUENCE EDIT",14,8,240,24,Justification::centredLeft);
-   g.setColour(dim);g.setFont(legend(13.f));g.drawText("Click a step, then play a note or chord: it "+String(add.getToggleState()?"joins":"replaces")+" the step and the next one is selected.   + adds a step.",260,8,getWidth()-280,24,Justification::centredLeft);
-   for(int i=0;i<jmin(64,sequence.length+1);++i){const auto r=cell(i).toFloat();const bool selected=i==shownStep;
-    if(i==sequence.length){g.setColour(dim.withAlpha(.5f));g.drawRoundedRectangle(r,4,1);g.setFont(face(22.f));g.drawText("+",r,Justification::centred);continue;}
-    g.setColour(selected?Colour(0xff2a4a5a):Colour(0xff17191b));g.fillRoundedRectangle(r,4);g.setColour(selected?led:Colour(0xff34373a));g.drawRoundedRectangle(r,4,selected?2.f:1.f);
-    g.setColour(dim);g.setFont(mono(10.f));g.drawText(String(i+1).paddedLeft('0',2),r.reduced(5,3),Justification::topLeft);
-    // recorded notes on the first line, notes added by OVERDUB on a second line in blue
+   g.setColour(dim);g.setFont(legend(13.f));
+   g.drawText("Click a SEQ or OVD cell, then play a note or chord: it "+String(add.getToggleState()?"joins":"replaces")+" that line of the step.   + adds a step.",260,8,getWidth()-280,24,Justification::centredLeft);
+   const int rows=jmin(64,sequence.length+1)/16+1;
+   for(int r=0;r<rows&&r<4;++r){g.setFont(face(11.f,true));g.setColour(ink);g.drawText("SEQ",8,40+r*66,40,30,Justification::centredLeft);g.setColour(blue);g.drawText("OVD",8,72+r*66,40,30,Justification::centredLeft);}
+   for(int i=0;i<jmin(64,sequence.length+1);++i){
+    if(i==sequence.length){const auto r=stepArea(i).toFloat();g.setColour(dim.withAlpha(.5f));g.drawRoundedRectangle(r,4,1);g.setFont(face(22.f));g.drawText("+",r,Justification::centred);continue;}
     String played,dubbed;for(int k=0;k<sequence.count[size_t(i)];++k)(sequence.dubbed[size_t(i)][size_t(k)]?dubbed:played)<<MidiMessage::getMidiNoteName(sequence.notes[size_t(i)][size_t(k)],true,true,4)<<" ";
-    auto text=r.reduced(4,2).withTrimmedTop(11).toNearestInt();g.setFont(face(12.f));
-    if(sequence.count[size_t(i)]==0){g.setColour(dim);g.drawText("REST",text,Justification::centred);continue;}
-    if(dubbed.isEmpty()){g.setColour(ink);g.drawFittedText(played.trim(),text,Justification::centred,3,.7f);continue;}
-    auto top=text.removeFromTop(text.getHeight()/2);g.setColour(ink);g.drawFittedText(played.isEmpty()?String("-"):played.trim(),top,Justification::centred,1,.6f);
-    g.setColour(Colour(0xff6cc4ff));g.drawFittedText(dubbed.trim(),text,Justification::centred,1,.6f);}
+    for(const bool dub:{false,true}){const auto r=laneCell(i,dub).toFloat();const bool selected=shownStep==i*2+(dub?1:0);
+     g.setColour(selected?(dub?Colour(0xff1d3a52):Colour(0xff2a4a5a)):Colour(0xff17191b));g.fillRoundedRectangle(r,4);
+     g.setColour(selected?(dub?blue:led):Colour(0xff34373a));g.drawRoundedRectangle(r,4,selected?2.f:1.f);
+     if(!dub){g.setColour(dim);g.setFont(mono(9.f));g.drawText(String(i+1).paddedLeft('0',2),r.reduced(4,2),Justification::topLeft);}
+     const auto& text=dub?dubbed:played;g.setFont(face(12.f));
+     if(text.isEmpty()){g.setColour(dim.withAlpha(.6f));g.drawText(dub?String("-"):String("REST"),r,Justification::centred);}
+     else{g.setColour(dub?blue:ink);g.drawFittedText(text.trim(),r.reduced(4,1).withTrimmedLeft(dub?0:12).toNearestInt(),Justification::centred,1,.55f);}}}
   }
-  void mouseDown(const MouseEvent& e) override {for(int i=0;i<jmin(64,sequence.length+1);++i)if(cell(i).contains(e.getPosition())){
-    if(i==sequence.length)orbit.editSequence([](Arpeggiator::Sequence& q){q.insertAfter(q.length-1);});select(i);return;}}
-  Orbit& orbit;TextButton prev{"<  STEP"},next{"STEP  >"},add{"ADD"},rest{"REST"},insert{"INSERT"},remove{"DELETE"},done{"DONE"};
+  void mouseDown(const MouseEvent& e) override {
+   for(int i=0;i<jmin(64,sequence.length+1);++i){
+    if(i==sequence.length&&stepArea(i).contains(e.getPosition())){orbit.editSequence([](Arpeggiator::Sequence& q){q.insertAfter(q.length-1);});select(i,false);return;}
+    for(const bool dub:{false,true})if(i<sequence.length&&laneCell(i,dub).contains(e.getPosition())){select(i,dub);return;}}}
+  Orbit& orbit;TextButton prev{"<  STEP"},next{"STEP  >"},add{"ADD"},rest{"CLEAR"},insert{"INSERT"},remove{"DELETE"},clearOvd{"CLEAR OVD"},mergeOvd{"MERGE OVD"},done{"DONE"};
   std::function<void()> onClose;Arpeggiator::Sequence sequence;String shownText;int shownStep=-2;
  };
  void showSequenceEditor(bool show){if(show)sequenceEditor.open();else sequenceEditor.close();}

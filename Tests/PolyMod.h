@@ -67,6 +67,11 @@ static bool polyModTests(){
  // SEQUENCER playback: recorded chords and rests, moved by the lowest held key (relative to the first step's lowest note).
  {Arpeggiator::Sequence seq;const int a[]={60},b[]={64,67},c[]={62};seq.add(a,1);seq.add(b,2);seq.add(nullptr,0);seq.add(c,1);
   if(!require(seq.root==60&&seq.length==4&&seq.toString()=="60;64,67;r;62","sequence text form"))return false;
+  {Arpeggiator::Sequence lanes;lanes.fromString("60,67o;64");const int g[]={55};lanes.setLane(0,g,1,true);
+   if(!require(lanes.toString()=="55o,60;64","OVD line not replaced on its own: "+lanes.toString()))return false;
+   const int h[]={62};lanes.setLane(0,h,1,false);if(!require(lanes.toString()=="55o,62;64"&&lanes.root==62,"SEQ line not replaced on its own: "+lanes.toString()))return false;
+   auto merged=lanes;merged.mergeOverdub();lanes.clearOverdub();
+   if(!require(lanes.toString()=="62;64"&&merged.toString()=="55,62;64","clear / merge overdub"))return false;}
   Arpeggiator::Sequence back;back.fromString(seq.toString());if(!require(back.toString()==seq.toString()&&back.root==60,"sequence does not read back"))return false;
   Arpeggiator arp;arp.prepare(48000);std::vector<std::vector<int>> steps;int last=-1;
   for(int blk=0;blk<200;++blk){juce::MidiBuffer m;if(blk==0)m.addEvent(juce::MidiMessage::noteOn(1,62,.8f),0);
