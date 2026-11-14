@@ -7,6 +7,8 @@
 
 namespace orbitui {
  const Colour panel{0xff080909}, ink{0xfff0e5ca}, dim{0xffc1b99f}, amber{0xffd9772b}, teal{0xff3f82a0};
+ // Poly 8: light steel grey section bars printed in near-black, beside the blue ones.
+ const Colour steel{0xffc6ccd2}, steelInk{0xff15181b};
  const Colour neutral{0xffd9d3c3}, bright{0xffe6e0d1}, led{0xffedac62}, slot{0xff0b0c0d}, print{0xff141516};
  inline Font face(float size, bool bold = false) { return Font(FontOptions("DIN Condensed", size, bold ? Font::bold : Font::plain)); }
  inline Font legend(float size) { return Font(FontOptions("Helvetica Neue", size, Font::plain)); }
@@ -623,24 +625,24 @@ private:
  void buildPanelA(){
   using namespace orbitui;
   // POLY-MOD: two signed sources (filter envelope, VCO 1), three destinations switched on and off.
-  auto area=section("POLY-MOD",amber,{32,panelY,282,panelH});auto cells=split(area,{1,1,1.3f});
+  auto area=section("POLY-MOD",steel,{32,panelY,282,panelH});auto cells=split(area,{1,1,1.3f});
   addFader("polyEnv","FILT ENV",0,cells[0].withTrimmedBottom(10));addFader("polyOsc","VCO 1",0,cells[1].withTrimmedBottom(10));
   caption("DEST.",cells[2].withHeight(16),0);
   const char* polyIds[]={"polyFreq","polyWidth","polyFilter"};const char* polyNames[]={"FREQ 2","PW 2","FILTER"};
   for(int i=0;i<3;++i)printedToggle(polyIds[i],polyNames[i],cells[2].withTrimmedTop(22+i*58).withSizeKeepingCentre(52,45).withY(cells[2].getY()+22+i*58));
-  area=section("MIXER",amber,{320,panelY,238,panelH});cells=split(area,{1,1,1,1.2f});
+  area=section("MIXER",steel,{320,panelY,238,panelH});cells=split(area,{1,1,1,1.2f});
   addFader("oscLayer","VCO 2",0,cells[0].withTrimmedBottom(26));caption("VCO 1",cells[0].withY(area.getBottom()-23).withHeight(17),0,12);
   addFader("vcoSub","SUB",0,cells[1].withTrimmedBottom(10));addFader("vcoNoise","NOISE",0,cells[2].withTrimmedBottom(10));
   addRowKnob("vcoPwm","VCO PWM",cells[3]);
-  area=section("FILTER A",amber,{564,panelY,432,panelH});cells=split(area,{1,1,1,1,1,1,1,2});
+  area=section("FILTER A",steel,{564,panelY,432,panelH});cells=split(area,{1,1,1,1,1,1,1,2});
   const char* filterIds[]={"hpfFreq","cutoff","resonance","env","lfoFilter","keytrack","velFilter"};const char* filterNames[]={"HPF","FREQ","RES","ENV","LFO","KYBD","VEL"};
   for(int i=0;i<7;++i)addFader(filterIds[i],filterNames[i],0,cells[i].withTrimmedBottom(10));
   chipChoice("filterAType","MODEL",{"LADDER","SVF"},cells[7].withHeight(75),true);
   chipChoice("slope","SLOPE",{"12","24"},cells[7].withTrimmedTop(100).withHeight(75),true);
-  area=section("ENV / AMP",amber,{1002,panelY,244,panelH});cells=split(area,{1,1,1,1,1});
+  area=section("ENV / AMP",steel,{1002,panelY,244,panelH});cells=split(area,{1,1,1,1,1});
   const char* ampIds[]={"attack","decay","sustain","release","velocity"};const char* ampNames[]={"A","D","S","R","VEL"};
   for(int i=0;i<5;++i)addFader(ampIds[i],ampNames[i],0,cells[i].withTrimmedBottom(10));
-  area=section("ENV / FILTER",amber,{1252,panelY,316,panelH});cells=split(area,{1,1,1,1,1.9f});
+  area=section("ENV / FILTER",steel,{1252,panelY,316,panelH});cells=split(area,{1,1,1,1,1.9f});
   const char* envIds[]={"fattack","fdecay","fsustain","frelease"};const char* envNames[]={"A","D","S","R"};
   for(int i=0;i<4;++i){auto& fader=addFader(envIds[i],envNames[i],0,cells[i].withTrimmedBottom(10));fader.followsLink=true;fader.slider.onDragStart=[this]{useOwnFilterEnvelope();};}
   chipChoice("envLink","SOURCE",{"OWN","AMP"},cells[4].withHeight(75),true);
@@ -648,7 +650,7 @@ private:
  }
  void buildRowTwo(){
   using namespace orbitui;
-  auto osc=section("OSCILLATORS",amber,{32,row2Y,560,row2H});
+  auto osc=section("OSCILLATORS",steel,{32,row2Y,560,row2H});
   for(int i=0;i<2;++i){const int y=osc.getY()+i*92;
    caption(i?"VCO 2":"VCO 1",{osc.getX(),y+40,43,22},-1,14);labels.getLast()->setFont(face(17.f,true).withExtraKerningFactor(.04f));labels.getLast()->setMinimumHorizontalScale(.5f); // printed like the rest of the panel
    tagRules.push_back(Rectangle<float>(float(osc.getX()+6),float(y+62),31.f,2.f));                                                 // with a short amber rule under it
@@ -677,10 +679,10 @@ private:
   addSync("lfoSync",5,rateKnob,switches[0].withHeight(45),-1,rateValue);
   printedToggle("lfoKeyTrig","KEY",switches[1]);printedToggle("envLfoTrig","ENV",switches[2]);printedToggle("lfoManual","MAN",switches[3]);
   menuChoice("pwmSource","PWM",bottom[1]);compactKnob("envPitch","ENV>P",bottom[2]);compactKnob("wheelDepth","WHEEL",bottom[3]);compactKnob("wheelFilter","WHL>F",bottom[4]);
-  auto filter=section("FILTER B",amber,{938,row2Y,220,row2H});auto cells=split(filter.withHeight(80),{1,1,1,1});
+  auto filter=section("FILTER B",steel,{938,row2Y,220,row2H});auto cells=split(filter.withHeight(80),{1,1,1,1});
   compactKnob("cutoffB","FREQ",cells[0]);compactKnob("resonanceB","RES",cells[1]);compactKnob("envB","ENV",cells[2]);compactKnob("filterBlend","MIX",cells[3]);
   cells=split(filter.withTrimmedTop(94),{1,1});chipChoice("filterBType","MODEL",{"LADDER","SVF"},cells[0].withHeight(72),true);chipChoice("slopeB","SLOPE",{"12","24"},cells[1].withHeight(72),true);
-  auto routing=section("ROUTING",amber,{1164,row2Y,200,row2H});chipChoice("filterRoute","",{"A","B","A>B","B>A","PAR"},routing.withHeight(65));
+  auto routing=section("ROUTING",steel,{1164,row2Y,200,row2H});chipChoice("filterRoute","",{"A","B","A>B","B>A","PAR"},routing.withHeight(65));
   caption("PRESSURE",routing.withTrimmedTop(80).withHeight(15),-1,12);
   cells=split(routing.withTrimmedTop(100),{1,1,1,1});compactKnob("atFilter","FILTER",cells[0]);compactKnob("atVolume","AMP",cells[1]);compactKnob("atLfo","LFO",cells[2]);compactKnob("atDrive","DRIVE",cells[3]);
   auto chorus=section("CHORUS",teal,{1370,row2Y,198,row2H});chipChoice("chorusMode","",{"OFF","I","II","I+II"},chorus.withHeight(65));
@@ -763,10 +765,10 @@ private:
    if(section.page>=0&&section.page!=page)continue;
    g.setColour(ink.withAlpha(.28f));g.drawRect(section.area,1);
    auto bar=section.area.withHeight(27);g.setColour(section.colour);g.fillRect(bar);
-   g.setColour(ink);g.setFont(face(19.f,true).withExtraKerningFactor(.07f));g.drawFittedText(section.title,bar.reduced(8,0),Justification::centredLeft,1,.8f);
+   g.setColour(section.colour==steel?steelInk:ink);g.setFont(face(19.f,true).withExtraKerningFactor(.07f));g.drawFittedText(section.title,bar.reduced(8,0),Justification::centredLeft,1,.8f);
    g.setColour(section.colour);g.fillRect(section.area.withY(section.area.getBottom()-3).withHeight(3));
   }
-  g.setColour(amber);for(const auto& rule:tagRules)g.fillRect(rule);
+  g.setColour(steel);for(const auto& rule:tagRules)g.fillRect(rule);
   g.setColour(ink.withAlpha(.2f));g.drawHorizontalLine(508,40,584);g.drawHorizontalLine(keysY-9,32,1568);
   g.setColour(dim);g.setFont(face(10.5f));g.drawText("C"+String(octave)+" — C"+String(octave+5),left+88,keysY+96,84,16,Justification::centred);
   g.setColour(Colour(0xff020303));g.fillRect(left+186,keysY,contentW-186,6);
@@ -774,7 +776,7 @@ private:
  }
 
  // ---- layout export: tells tools/orbit_render.py where every control sits ----------------------
- static String colourName(Colour colour) { using namespace orbitui; return colour == amber ? "amber" : colour == teal ? "teal" : colour == bright ? "bright" : colour == dim ? "dim" : colour == ink ? "ink" : "neutral"; }
+ static String colourName(Colour colour) { using namespace orbitui; return colour == amber ? "amber" : colour == steel ? "steel" : colour == teal ? "teal" : colour == bright ? "bright" : colour == dim ? "dim" : colour == ink ? "ink" : "neutral"; }
  static DynamicObject::Ptr boxed(Rectangle<int> r) { DynamicObject::Ptr item = new DynamicObject(); item->setProperty("x", r.getX()); item->setProperty("y", r.getY()); item->setProperty("w", r.getWidth()); item->setProperty("h", r.getHeight()); return item; }
  void collect(Component& parent, Array<var>& texts, Array<var>& faderList, Array<var>& knobList, Array<var>& buttonList) {
   for (auto* child : parent.getChildren()) {
