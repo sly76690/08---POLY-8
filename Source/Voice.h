@@ -89,7 +89,7 @@ private:
  }
  std::array<float,4> ladder{}; std::array<dsp::StateVariableTPTFilter<float>,2> svf; float sampleRate=44100.f,feedback=.4f,drive=1.2f,ladderScale=cutoffScale; int type=0,stages=1;
  // Ladder voicing, measured against the state-variable model and to adjust by ear.
- // Poly 8: the last steps of RES (above 9) push the loop past self-oscillation, so the ladder sings on its own as a sine
+ // Octant: the last steps of RES (above 9) push the loop past self-oscillation, so the ladder sings on its own as a sine
  // at FREQ; below that the response is unchanged from Orbit's calibrated curve.
  static constexpr float inputLevel=.2f,outputLevel=1.8f,bassReturn=.45f,maxFeedback=2.2f,selfOscillation=1.95f,selfOscillationCut=.8f,resonanceCurve=1.f,cutoffScale=2.f,outputHeadroom=.35f;
 };

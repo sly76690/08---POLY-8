@@ -7,7 +7,7 @@
 
 namespace orbitui {
  const Colour panel{0xff080909}, ink{0xfff0e5ca}, dim{0xffc1b99f}, amber{0xffd9772b}, teal{0xff3f82a0};
- // Poly 8: light steel grey section bars printed in near-black, beside the blue ones.
+ // Octant: light steel grey section bars printed in near-black, beside the blue ones.
  const Colour steel{0xffc6ccd2}, steelInk{0xff15181b};
  const Colour neutral{0xffd9d3c3}, bright{0xffe6e0d1}, led{0xffedac62}, slot{0xff0b0c0d}, print{0xff141516};
  inline Font face(float size, bool bold = false) { return Font(FontOptions("DIN Condensed", size, bold ? Font::bold : Font::plain)); }
@@ -27,7 +27,7 @@ struct OrbitSkin {
  bool ready = false;
  static File folder() { return Orbit::presetRoot().getChildFile("Skin"); }
  // Where the installer puts the artwork for every user of the computer (/Library/Application Support/... on macOS).
- static File sharedFolder() { return File::getSpecialLocation(File::commonApplicationDataDirectory).getChildFile("Application Support").getChildFile("SF Instruments").getChildFile("Poly 8").getChildFile("Skin"); }
+ static File sharedFolder() { return File::getSpecialLocation(File::commonApplicationDataDirectory).getChildFile("Application Support").getChildFile("SF Instruments").getChildFile("Octant").getChildFile("Skin"); }
  void load(const File& directory) {
   const auto get = [&directory](const char* name) { return ImageFileFormat::loadFrom(directory.getChildFile(name)); };
   background = get("background.jpg"); knob = get("knob.png"); fader = get("fader.png"); led = get("led.png");
@@ -801,7 +801,7 @@ private:
   g.setTiledImageFill(panelGrain,0,0,1.f);g.fillRect(16,0,designW-32,designH);
   g.setColour(Colours::white);g.drawImage(brandLogo,Rectangle<float>(26,0,112,112));
   g.setColour(ink);g.setFont(Font(FontOptions("Helvetica Neue",43.f,Font::bold)).withExtraKerningFactor(.06f));
-  g.drawText("POLY 8",left+112,16,350,56,Justification::centredLeft);
+  g.drawText("OCTANT",left+112,16,350,56,Justification::centredLeft);
   g.setColour(dim);g.setFont(face(12.f).withExtraKerningFactor(.10f));g.drawText("PROGRAMMABLE POLYPHONIC SYNTHESIZER",left+114,76,350,18,Justification::centredLeft);
   Rectangle<float> window(510,22,344,70);g.setColour(Colour(0xff020303));g.fillRoundedRectangle(window,3);g.setColour(Colour(0xff36382f));g.drawRoundedRectangle(window,3,1);
   g.setColour(led);g.setFont(mono(11.f));g.drawText(displayLine,522,29,320,20,Justification::centredLeft);
@@ -902,7 +902,7 @@ private:
  void showResult(const Result& result) { if (result.failed()) AlertWindow::showMessageBoxAsync(MessageBoxIconType::WarningIcon, "Preset", result.getErrorMessage()); }
  void saveDialog() {
   using orbitui::utf8;
-  auto* dialog = new AlertWindow("Enregistrer un preset", utf8("Enregistrement dans Application Support/SF Instruments/Poly 8. Un nom existant peut être remplacé après confirmation."), MessageBoxIconType::NoIcon);
+  auto* dialog = new AlertWindow("Enregistrer un preset", utf8("Enregistrement dans Application Support/SF Instruments/Octant. Un nom existant peut être remplacé après confirmation."), MessageBoxIconType::NoIcon);
   dialog->addTextEditor("name", orbit.userPresetName(), "Nom du preset");
   dialog->addButton("Enregistrer", 1, KeyPress(KeyPress::returnKey)); dialog->addButton("Annuler", 0, KeyPress(KeyPress::escapeKey));
   Component::SafePointer<Editor> safe(this);

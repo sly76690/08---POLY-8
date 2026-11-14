@@ -291,7 +291,7 @@ int main() {
    {{{"lfoFilter",2},{"rate",3}},{{"lfoFilter",2},{"rate",3},{"lfoSync",6}}},
    {{{"rate",6},{"decay",.05f},{"sustain",.2f}},{{"rate",6},{"decay",.05f},{"sustain",.2f},{"envLfoTrig",1}}},
    {{{"masterTune",0}},{{"masterTune",40}}},
-   // Poly 8: PWM is heard on the VCOs once their SHAPE reaches the pulse side.
+   // Octant: PWM is heard on the VCOs once their SHAPE reaches the pulse side.
    {{{"pwmSource",2},{"vcoPwm",.6f},{"vco1Wave",.8f},{"vco2Wave",.8f}},{{"pwmSource",3},{"vcoPwm",.6f},{"vco1Wave",.8f},{"vco2Wave",.8f}}},
    {{{"pwmSource",2},{"vcoPwm",.6f},{"vco1Wave",.8f},{"vco2Wave",.8f},{"envLink",0},{"fdecay",.1f},{"fsustain",0}},{{"pwmSource",4},{"vcoPwm",.6f},{"vco1Wave",.8f},{"vco2Wave",.8f},{"envLink",0},{"fdecay",.1f},{"fsustain",0}}},
    {{{"vcaMode",0},{"envLink",0},{"fsustain",.1f}},{{"vcaMode",2},{"envLink",0},{"fsustain",.1f}}},
@@ -338,7 +338,7 @@ int main() {
  };
  collectPanelIds(*editor);
  for(auto* parameter:p->getParameters())if(auto* identified=dynamic_cast<juce::AudioProcessorParameterWithID*>(parameter))
-  if(!panelIds.contains(identified->paramID)&&!juce::StringArray{"osc1Shape","osc2Shape","wave","width","pwm","sub","noise","osc1Level","jupiterMix","seqOvd"}.contains(identified->paramID)) // Poly 8: fixed shapes and DCO kept for old patches only
+  if(!panelIds.contains(identified->paramID)&&!juce::StringArray{"osc1Shape","osc2Shape","wave","width","pwm","sub","noise","osc1Level","jupiterMix","seqOvd"}.contains(identified->paramID)) // Octant: fixed shapes and DCO kept for old patches only
    {std::cerr<<"Missing panel control: "<<identified->paramID<<"\n";return 96;}
  std::cout<<"PASS all "<<panelIds.size()<<" parameters have visible panel controls\n";
  // Both range dials retain all six host values and discrete stops.

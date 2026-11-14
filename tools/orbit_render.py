@@ -1,7 +1,7 @@
 # Orbit - renders the artwork ("skin") of the plugin's front panel.
 #
 # 1. Open Orbit once (standalone or in a DAW): it writes layout.json, the position of every control,
-#    in  ~/Library/Application Support/SF Instruments/Poly 8/Skin
+#    in  ~/Library/Application Support/SF Instruments/Octant/Skin
 # 2. Run this script from the project folder:
 #       /Applications/Blender.app/Contents/MacOS/Blender -b -P tools/orbit_render.py
 #    It builds the whole panel from layout.json and writes, in the same Skin folder:
@@ -41,7 +41,7 @@ VIGNETTE = 0.10
 SAMPLES = 48 if QUICK else 192
 PIXELS = 1 if QUICK else 2          # rendered pixels per design pixel (2 = sharp on Retina screens)
 
-SKIN = os.path.expanduser("~/Library/Application Support/SF Instruments/Poly 8/Skin")
+SKIN = os.path.expanduser("~/Library/Application Support/SF Instruments/Octant/Skin")
 LAYOUT = os.path.join(SKIN, "layout.json")
 if not os.path.exists(LAYOUT):
     raise SystemExit("layout.json not found in " + SKIN + ": open Orbit once so that it writes it, then run this script again.")

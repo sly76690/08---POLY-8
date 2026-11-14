@@ -12,7 +12,7 @@ public:
   float fine=0, tune=0, crossMod=0, age=.3f;
   int shape1=0, shape2=0, range1=3, range2=3;
   bool sync=false, lowFrequency=false;
-  // Poly 8. MORPH shape (shape 6): one continuous wave control, triangle > saw > square > narrow pulse.
+  // Octant. MORPH shape (shape 6): one continuous wave control, triangle > saw > square > narrow pulse.
   float morph1=.33f, morph2=.33f;
   float vcoSub=0, vcoNoise=0;          // mixer of the VCO section: square one octave under VCO 1, white noise
   // POLY-MOD: the filter envelope and VCO 1 (each with its own signed amount) modulate VCO 2's frequency and/or

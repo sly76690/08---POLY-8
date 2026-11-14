@@ -34,10 +34,10 @@ public:
  ~Orbit() override {removeListener(this);for(auto* param:getParameters()) if(auto* identified=dynamic_cast<AudioProcessorParameterWithID*>(param)) state.removeParameterListener(identified->paramID,this);}
  String userPresetName() const {return state.state.getProperty("userPresetName").toString();}
  // User presets live in the user's library, so they survive moving or rebuilding the project.
- static File presetRoot(){return File::getSpecialLocation(File::userApplicationDataDirectory).getChildFile("Application Support").getChildFile("SF Instruments").getChildFile("Poly 8");}
+ static File presetRoot(){return File::getSpecialLocation(File::userApplicationDataDirectory).getChildFile("Application Support").getChildFile("SF Instruments").getChildFile("Octant");}
  StringArray userPresetNames() const {return PresetStorage(presetRoot()).names();}
  // Sounds: complete presets shipped by the installer (shared library), plus any the user drops in their own Presets/Sounds.
- static File sharedRoot(){return File::getSpecialLocation(File::commonApplicationDataDirectory).getChildFile("Application Support").getChildFile("SF Instruments").getChildFile("Poly 8");}
+ static File sharedRoot(){return File::getSpecialLocation(File::commonApplicationDataDirectory).getChildFile("Application Support").getChildFile("SF Instruments").getChildFile("Octant");}
  String soundName() const {return state.state.getProperty("soundName").toString();}
  StringArray soundNames() const {auto names=PresetStorage(sharedRoot(),"Sounds").names();names.mergeArray(PresetStorage(presetRoot(),"Sounds").names());names.mergeArray(CinematicBank::names());names.sort(true);return names;}
  Result loadSound(const String& name){auto xml=CinematicBank::load(name);if(!xml)xml=PresetStorage(presetRoot(),"Sounds").load(name);if(!xml)xml=PresetStorage(sharedRoot(),"Sounds").load(name);if(!xml)return Result::fail("Son absent ou invalide dans Presets/Sounds.");
@@ -151,13 +151,13 @@ public:
   add("fxDrive","Drive",0,1,0);add("delayTime","Delay time (s)",0.03f,1.5f,0.3f);add("delayFeedback","Delay feedback",0,1.1f,0.3f);add("delayMod","Delay modulation",0,1,0.3f);add("delayMix","Delay mix",0,0.65f,0);
   add("reverbSize","Reverb size",0,1,0.5f);add("reverbDamp","Reverb damping",0,1,0.5f);add("reverbMix","Reverb mix",0,0.65f,0);add("reverbColor","Reverb color",0,1,0.4f);
   add("oscLayer","Jupiter source mix",0,1,.5f);
-  add("jupiterMix","DCO / VCO mix",0,1,1); /* Poly 8 plays its two VCOs; the DCO stays for old patches */ add("vco1Width","VCO 1 pulse width",.08f,.92f,.5f);add("vcoPwm","VCO PWM depth",0,1,0);
+  add("jupiterMix","DCO / VCO mix",0,1,1); /* Octant plays its two VCOs; the DCO stays for old patches */ add("vco1Width","VCO 1 pulse width",.08f,.92f,.5f);add("vcoPwm","VCO PWM depth",0,1,0);
   keep(std::make_unique<AudioParameterBool>(ParameterID{"vco2Low",1},label("vco2Low","VCO 2 low frequency"),false));
   keep(std::make_unique<AudioParameterBool>(ParameterID{"envLink",1},label("envLink","Link filter to amp envelope"),true));
   auto choice=[&](const char* id,const char* name,StringArray values,int initial=0){keep(std::make_unique<AudioParameterChoice>(ParameterID{id,1},label(id,name),values,initial));};
   choice("osc1Shape","VCO 1 shape",{"Saw","Pulse","Triangle","Sine","Square","Noise","Morph"},6);
   choice("osc2Shape","VCO 2 shape",{"Saw","Pulse","Triangle","Sine","Square","Noise","Morph"},6);
-  // Poly 8: one continuous wave control per VCO (triangle, saw, square, narrow pulse), the mixer, and POLY-MOD.
+  // Octant: one continuous wave control per VCO (triangle, saw, square, narrow pulse), the mixer, and POLY-MOD.
   add("vco1Wave","VCO 1 shape",0,1,.33f);add("vco2Wave","VCO 2 shape",0,1,.33f);add("vcoSub","VCO sub",0,1,0);add("vcoNoise","VCO noise",0,1,0);
   add("polyEnv","Poly-mod filter envelope",-1,1,0);add("polyOsc","Poly-mod VCO 1",-1,1,0);
   keep(std::make_unique<AudioParameterBool>(ParameterID{"polyFreq",1},label("polyFreq","Poly-mod to VCO 2 frequency"),true));
@@ -208,7 +208,7 @@ public:
    for(auto& parameter:made)if(parameter)l.add(std::move(parameter)); // anything not placed on a page goes last, never lost
   return l;
  }
- const String getName() const override {return "Poly 8";}
+ const String getName() const override {return "Octant";}
  bool acceptsMidi() const override {return true;} bool producesMidi() const override {return false;}
  double getTailLengthSeconds() const override {return 30;}
  struct Patch {const char* name; int engine; float cutoff, resonance, attack, decay, sustain, release, wave, sub, detune, chorus, amount;};
@@ -250,7 +250,7 @@ public:
   auto set=[&](const char* id,float value){auto* param=state.getParameter(id);param->setValueNotifyingHost(param->convertTo0to1(value));};
   set("mode",float(p.engine));set("cutoff",p.cutoff);set("resonance",p.resonance);set("attack",p.attack);set("decay",p.decay);set("sustain",p.sustain);set("release",p.release);set("wave",p.wave);set("sub",p.sub);set("detune",p.detune);set("chorus",p.chorus);set("env",p.amount);
   set("fattack",p.attack*.6f);set("fdecay",p.decay);set("fsustain",p.sustain*.6f);set("frelease",p.release);
-  // Poly 8: every patch plays the two VCOs. The patch's saw/pulse balance becomes the SHAPE of both (saw to square),
+  // Octant: every patch plays the two VCOs. The patch's saw/pulse balance becomes the SHAPE of both (saw to square),
   // its sub level the VCO sub, and VCO 2 is detuned against VCO 1 by the patch's detune.
   set("jupiterMix",1.f);set("oscLayer",.5f);
   set("vco1Wave",.33f+.33f*p.wave);set("vco2Wave",.33f+.33f*p.wave);set("vcoSub",p.sub*.6f);

@@ -10,7 +10,7 @@ namespace poly8test {
  struct Sound : SynthesiserSound { bool appliesToNote(int) override {return true;} bool appliesToChannel(int) override {return true;} };
  #include "../Source/Voice.h"
 }
-// Poly 8: continuous SHAPE, the VCO mixer and POLY-MOD, tested on the oscillator bank and through the plugin.
+// Octant: continuous SHAPE, the VCO mixer and POLY-MOD, tested on the oscillator bank and through the plugin.
 static bool polyModTests(){
  using Settings=OscillatorBank::Settings;
  auto render=[](Settings s,float filterEnvelope=0,int length=12000){

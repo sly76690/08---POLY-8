@@ -10,22 +10,22 @@ for directory in build .local-cache; do
 done
 mkdir -p build .local-cache
 export TMPDIR="$PROJECT_DIR/.local-cache"
-VERSION=$(sed -n 's/^project(Poly8 VERSION \([0-9.]*\).*/\1/p' CMakeLists.txt)
+VERSION=$(sed -n 's/^project(Octant VERSION \([0-9.]*\).*/\1/p' CMakeLists.txt)
 [ -n "$VERSION" ] || { echo "Missing project version"; exit 1; }
-OUT="build/Poly8_artefacts/Release"
-PKG="$PROJECT_DIR/build/Poly8-$VERSION.pkg"
+OUT="build/Octant_artefacts/Release"
+PKG="$PROJECT_DIR/build/Octant-$VERSION.pkg"
 [ ! -L "$PKG" ] || { echo "Refusing output symlink"; exit 1; }
-for item in "$OUT/AU/Poly 8.component" "$OUT/VST3/Poly 8.vst3" "$OUT/Standalone/Poly 8.app"; do
+for item in "$OUT/AU/Octant.component" "$OUT/VST3/Octant.vst3" "$OUT/Standalone/Octant.app"; do
   [ -d "$item" ] || { echo "Missing: $item; build first."; exit 1; }
 done
 WORK=$(mktemp -d "$PROJECT_DIR/build/pkg-stage.XXXXXX")
 trap 'rm -rf "$WORK"' EXIT
 STAGE="$WORK/root"
 mkdir -p "$STAGE/Library/Audio/Plug-Ins/Components" "$STAGE/Library/Audio/Plug-Ins/VST3" "$STAGE/Applications"
-ditto "$OUT/AU/Poly 8.component" "$STAGE/Library/Audio/Plug-Ins/Components/Poly 8.component"
-ditto "$OUT/VST3/Poly 8.vst3" "$STAGE/Library/Audio/Plug-Ins/VST3/Poly 8.vst3"
-ditto "$OUT/Standalone/Poly 8.app" "$STAGE/Applications/Poly 8.app"
-SOUNDS="$STAGE/Library/Application Support/SF Instruments/Poly 8/Presets/Sounds"
+ditto "$OUT/AU/Octant.component" "$STAGE/Library/Audio/Plug-Ins/Components/Octant.component"
+ditto "$OUT/VST3/Octant.vst3" "$STAGE/Library/Audio/Plug-Ins/VST3/Octant.vst3"
+ditto "$OUT/Standalone/Octant.app" "$STAGE/Applications/Octant.app"
+SOUNDS="$STAGE/Library/Application Support/SF Instruments/Octant/Presets/Sounds"
 mkdir -p "$SOUNDS"
 count=0
 for sound in Presets/Sounds/*.orbitpreset Presets/MidnightSignals/*.orbitpreset; do
@@ -33,13 +33,13 @@ for sound in Presets/Sounds/*.orbitpreset Presets/MidnightSignals/*.orbitpreset;
   cp "$sound" "$SOUNDS/"
   count=$((count + 1))
 done
-cp Presets/MidnightSignals/README.md "$STAGE/Library/Application Support/SF Instruments/Poly 8/Midnight Signals.md"
+cp Presets/MidnightSignals/README.md "$STAGE/Library/Application Support/SF Instruments/Octant/Midnight Signals.md"
 echo "Sons inclus : $count (dont 16 Midnight Signals, également intégrés aux binaires)"
 find "$STAGE" -name ".DS_Store" -delete
 xattr -cr "$STAGE"
 chmod -R u+w,go+rX "$STAGE"
 # Re-sign staged bundles after the VST3 manifest/resource generation has finished.
-for bundle in "$STAGE/Applications/Poly 8.app" "$STAGE/Library/Audio/Plug-Ins/Components/Poly 8.component" "$STAGE/Library/Audio/Plug-Ins/VST3/Poly 8.vst3"; do
+for bundle in "$STAGE/Applications/Octant.app" "$STAGE/Library/Audio/Plug-Ins/Components/Octant.component" "$STAGE/Library/Audio/Plug-Ins/VST3/Octant.vst3"; do
   codesign --force --deep --sign - "$bundle"
   codesign --verify --deep --strict "$bundle"
 done
@@ -61,6 +61,6 @@ while /usr/libexec/PlistBuddy -c "Print :$index" "$PLIST" >/dev/null 2>&1; do
   done
   index=$((index + 1))
 done
-pkgbuild --root "$STAGE" --component-plist "$PLIST" --identifier com.sfinstruments.poly8.pkg --version "$VERSION" --install-location / "$WORK/Poly8.pkg"
-mv -f "$WORK/Poly8.pkg" "$PKG"
+pkgbuild --root "$STAGE" --component-plist "$PLIST" --identifier com.sfinstruments.octant.pkg --version "$VERSION" --install-location / "$WORK/Octant.pkg"
+mv -f "$WORK/Octant.pkg" "$PKG"
 echo "Installeur prêt : $PKG"

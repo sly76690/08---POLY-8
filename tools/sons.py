@@ -1,6 +1,6 @@
-# Poly 8 - writes the factory sounds shipped with the installer (menu SOUNDS) into Presets/Sounds.
-# Each sound only lists what differs from the default settings: Poly 8 fills in the rest when it loads it.
-# Every sound is programmed from scratch on Poly 8 by sound type (brass, bells, sync lead...): no factory data
+# Octant - writes the factory sounds shipped with the installer (menu SOUNDS) into Presets/Sounds.
+# Each sound only lists what differs from the default settings: Octant fills in the rest when it loads it.
+# Every sound is programmed from scratch on Octant by sound type (brass, bells, sync lead...): no factory data
 # or patch of any other instrument is copied.
 # Usage:  python3 tools/sons.py      then  bash tools/paquet.sh
 import os, glob
