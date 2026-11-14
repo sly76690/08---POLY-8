@@ -13,7 +13,8 @@ public:
    count[size_t(length)]=n;if(n>0&&!hasNotes())root=*std::min_element(chord,chord+n);++length;return true;}
   bool hasNotes() const {for(int i=0;i<length;++i)if(count[size_t(i)]>0)return true;return false;}
   // Editing: replace a step, add one note to it, insert a rest after it, remove it. The root follows the first step.
-  void updateRoot(){for(int i=0;i<length;++i)if(count[size_t(i)]>0){root=*std::min_element(notes[size_t(i)].begin(),notes[size_t(i)].begin()+count[size_t(i)]);return;}root=60;}
+  void updateRoot(){for(int i=0;i<length;++i){int lowest=128;for(int k=0;k<count[size_t(i)];++k)if(!dubbed[size_t(i)][size_t(k)])lowest=juce::jmin(lowest,notes[size_t(i)][size_t(k)]);
+   if(lowest<128){root=lowest;return;}}root=60;} // from the recorded notes only: overdub never moves the transposition
   void set(int index,const int* chord,int n){if(!juce::isPositiveAndBelow(index,length))return;n=juce::jlimit(0,maxNotes,n);for(int i=0;i<n;++i){notes[size_t(index)][size_t(i)]=chord[i];dubbed[size_t(index)][size_t(i)]=false;}count[size_t(index)]=n;updateRoot();}
   void merge(int index,int note,bool dub=false){if(!juce::isPositiveAndBelow(index,length))return;auto& c=count[size_t(index)];
    for(int i=0;i<c;++i)if(notes[size_t(index)][size_t(i)]==note)return;if(c>=maxNotes)return;
