@@ -62,8 +62,11 @@ public:
  std::array<Image,3> indexSprite{ImageCache::getFromMemory(BinaryData::index_amber_png,BinaryData::index_amber_pngSize),
   ImageCache::getFromMemory(BinaryData::index_teal_png,BinaryData::index_teal_pngSize),ImageCache::getFromMemory(BinaryData::index_neutral_png,BinaryData::index_neutral_pngSize)};
  const Image& indexFor(Colour colour) const {return colour==orbitui::amber?indexSprite[0]:(colour==orbitui::teal?indexSprite[1]:indexSprite[2]);}
- void drawLed(Graphics& g,Rectangle<float> spot,bool on) const {
+ void drawLed(Graphics& g,Rectangle<float> spot,bool on,bool blue=false) const {
   const auto centre=spot.getCentre();
+  if(on&&blue){ // OVERDUB: a blue LED
+   for(int i=4;i>=1;--i){g.setColour(Colour(0xff3fa9ff).withAlpha(.09f));g.fillEllipse(Rectangle<float>(5.f+float(i)*3.f,5.f+float(i)*3.f).withCentre(centre));}
+   g.setColour(Colour(0xff6cc4ff));g.fillEllipse(Rectangle<float>(5.5f,5.5f).withCentre(centre));g.setColour(Colours::white.withAlpha(.7f));g.fillEllipse(Rectangle<float>(2.f,2.f).withCentre(centre.translated(-.6f,-.6f)));return;}
   if(on&&ledSprite.isValid()){g.drawImage(ledSprite,Rectangle<float>(26.f,26.f).withCentre(centre));return;}
   const auto dome=Rectangle<float>(5.f,5.f).withCentre(centre);
   g.setColour(Colour(0xff050505));g.fillEllipse(dome.expanded(1.f));g.setColour(Colour(0xff3a120c));g.fillEllipse(dome);
@@ -82,7 +85,8 @@ public:
    g.setGradientFill(rocker);g.fillRect(cap.reduced(1));g.setColour(Colours::white.withAlpha(over?.25f:.12f));g.drawRect(cap.reduced(1),.7f);return;
   }
   const bool lit=button.getToggleState()||down;
-  if(button.getProperties().contains("legendAbove")){area.removeFromTop(16);drawLed(g,area.removeFromTop(9),lit);}
+  const bool blue=button.getProperties().contains("ledBlue");
+  if(button.getProperties().contains("legendAbove")){area.removeFromTop(16);drawLed(g,area.removeFromTop(9),lit,blue);}
   else if(const int mode=ledMode(button);mode!=0)drawLed(g,mode==1?area.removeFromTop(12):area.removeFromLeft(12),lit);
   const auto cap=area.reduced(1.5f).withTrimmedBottom(2).translated(0,down?1.f:0.f);
   const bool cream=button.getProperties().contains("cream");
@@ -101,10 +105,10 @@ public:
    g.setColour(Colours::black);g.drawRoundedRectangle(cap,3,.8f);
    if(cap.getHeight()>=16.f){
     const auto bar=Rectangle<float>(jmax(8.f,cap.getWidth()*.44f),3.f).withCentre({cap.getCentreX(),cap.getY()+5.f});
-    if(lit){const Colour glow(0xffffa42a);for(int i=1;i<=5;++i){g.setColour(glow.withAlpha(.075f));g.fillRoundedRectangle(bar.expanded(float(i)*1.7f),float(i)*1.7f);}
-     g.setColour(Colour(0xffffb84a));g.fillRoundedRectangle(bar,1.5f);g.setColour(Colours::white.withAlpha(.55f));g.fillRoundedRectangle(bar.reduced(2.f,.8f),1.f);}
+    if(lit){const Colour glow(blue?0xff3fa9ff:0xffffa42a);for(int i=1;i<=5;++i){g.setColour(glow.withAlpha(.075f));g.fillRoundedRectangle(bar.expanded(float(i)*1.7f),float(i)*1.7f);}
+     g.setColour(Colour(blue?0xff6cc4ff:0xffffb84a));g.fillRoundedRectangle(bar,1.5f);g.setColour(Colours::white.withAlpha(.55f));g.fillRoundedRectangle(bar.reduced(2.f,.8f),1.f);}
     else{g.setColour(Colour(0xff2b1608));g.fillRoundedRectangle(bar,1.5f);g.setColour(Colours::black.withAlpha(.5f));g.drawHorizontalLine(int(bar.getY()),bar.getX(),bar.getRight());}
-   } else if(lit){g.setColour(Colour(0xffffa42a).withAlpha(.35f));g.fillRoundedRectangle(cap,3);}
+   } else if(lit){g.setColour(Colour(blue?0xff3fa9ff:0xffffa42a).withAlpha(.35f));g.fillRoundedRectangle(cap,3);}
   }
   if(over){g.setColour(Colours::white.withAlpha(.08f));g.fillRoundedRectangle(cap,3);}
  }
@@ -713,7 +717,15 @@ private:
   // SEQUENCER keys: REC, then play one note or chord per step (REST for a silent step); PLAY, then hold a key to transpose.
   // SEQUENCER: its own section, on the arpeggio clock (TEMPO, STEP, GATE, SYNC).
   area=section("SEQUENCER",teal,{830,lowerY,250,lowerH});cells=split(area,{1,1,1,1,1.45f});
-  printedToggle("seqRec","REC",cells[0].withTrimmedTop(18));printedToggle("seqRest","REST",cells[1].withTrimmedTop(18));printedToggle("seqPlay","PLAY",cells[2].withTrimmedTop(18));
+  // REC works like a looper pedal: REC (red) records a new sequence; pressed again, OVD (blue): the recording ends, the
+  // sequence plays and what you play joins it; pressed again, overdub ends and the sequence keeps playing.
+  printedToggle("seqRec","REC",cells[0].withTrimmedTop(18));recKey=&toggles.getLast()->button;toggles.getLast()->attachment.reset();
+  recKey->setClickingTogglesState(false);recKey->onClick=[this]{
+   auto setParam=[this](const char* id,bool on){auto* p=orbit.state.getParameter(id);p->beginChangeGesture();p->setValueNotifyingHost(on?1.f:0.f);p->endChangeGesture();};
+   const bool rec=orbit.state.getRawParameterValue("seqRec")->load()>.5f,ovd=orbit.state.getRawParameterValue("seqOvd")->load()>.5f;
+   if(ovd)setParam("seqOvd",false);
+   else if(rec){setParam("seqRec",false);setParam("seqPlay",true);setParam("seqOvd",true);}
+   else{setParam("seqPlay",false);setParam("seqRec",true);}};printedToggle("seqRest","REST",cells[1].withTrimmedTop(18));printedToggle("seqPlay","PLAY",cells[2].withTrimmedTop(18));
   restKey=&toggles[toggles.size()-2]->button;restKey->setClickingTogglesState(false); // REST is a momentary key
   // MEMORY: load one of the eight stored sequences, or store the current one, from a menu.
   // EDIT opens the step grid over the panel (the keyboard stays in view for playing the notes in).
@@ -920,9 +932,13 @@ private:
   midiButton.setToggleState(orbit.isLearning(), dontSendNotification);
   String shown = line;
   const int steps = orbit.sequenceLength();
-  if (orbit.state.getRawParameterValue("seqRec")->load() > .5f) shown = "SEQ REC    STEP " + String(steps + 1) + " / 64    REST = SILENCE";
+  if (orbit.state.getRawParameterValue("seqOvd")->load() > .5f) shown = "SEQ OVERDUB    " + String(steps) + " STEPS    PLAY TO ADD NOTES";
+  else if (orbit.state.getRawParameterValue("seqRec")->load() > .5f) shown = "SEQ REC    STEP " + String(steps + 1) + " / 64    REST = SILENCE";
   else if (orbit.state.getRawParameterValue("seqPlay")->load() > .5f) shown = (orbit.sequenceSlot() >= 0 ? "SEQ " + String(orbit.sequenceSlot() + 1) : String("SEQ PLAY")) + "    " + String(steps) + " STEPS    KEY = TRANSPOSE";
   sequenceEditor.refresh();
+  if (recKey != nullptr) { const bool rec = orbit.state.getRawParameterValue("seqRec")->load() > .5f, ovd = orbit.state.getRawParameterValue("seqOvd")->load() > .5f;
+   recKey->setToggleState(rec || ovd, dontSendNotification); recKey->setButtonText(ovd ? "OVD" : "REC");
+   if (ovd != recKey->getProperties().contains("ledBlue")) { if (ovd) recKey->getProperties().set("ledBlue", true); else recKey->getProperties().remove("ledBlue"); recKey->repaint(); } }
   if (orbit.editStep.load() >= 0) shown = "SEQ EDIT    STEP " + String(orbit.editStep.load() + 1).paddedLeft('0', 2) + " / " + String(steps).paddedLeft('0', 2) + "    PLAY A NOTE OR CHORD";
   if (seqStepLabel != nullptr) { const bool rec = orbit.state.getRawParameterValue("seqRec")->load() > .5f, play = orbit.state.getRawParameterValue("seqPlay")->load() > .5f;
    const String text = rec ? "REC " + String(steps + 1).paddedLeft('0', 2) : play && steps > 0 ? String(orbit.sequencePosition() + 1).paddedLeft('0', 2) + "/" + String(steps).paddedLeft('0', 2) : String(steps) + " ST";
@@ -984,9 +1000,13 @@ private:
     if(i==sequence.length){g.setColour(dim.withAlpha(.5f));g.drawRoundedRectangle(r,4,1);g.setFont(face(22.f));g.drawText("+",r,Justification::centred);continue;}
     g.setColour(selected?Colour(0xff2a4a5a):Colour(0xff17191b));g.fillRoundedRectangle(r,4);g.setColour(selected?led:Colour(0xff34373a));g.drawRoundedRectangle(r,4,selected?2.f:1.f);
     g.setColour(dim);g.setFont(mono(10.f));g.drawText(String(i+1).paddedLeft('0',2),r.reduced(5,3),Justification::topLeft);
-    String notes;for(int k=0;k<sequence.count[size_t(i)];++k)notes<<MidiMessage::getMidiNoteName(sequence.notes[size_t(i)][size_t(k)],true,true,4)<<(k%2?"\n":" ");
-    g.setColour(sequence.count[size_t(i)]?ink:dim);g.setFont(face(sequence.count[size_t(i)]>4?11.f:13.f));
-    g.drawFittedText(sequence.count[size_t(i)]?notes.trim():String("REST"),r.reduced(4,2).withTrimmedTop(11).toNearestInt(),Justification::centred,4,.7f);}
+    // recorded notes on the first line, notes added by OVERDUB on a second line in blue
+    String played,dubbed;for(int k=0;k<sequence.count[size_t(i)];++k)(sequence.dubbed[size_t(i)][size_t(k)]?dubbed:played)<<MidiMessage::getMidiNoteName(sequence.notes[size_t(i)][size_t(k)],true,true,4)<<" ";
+    auto text=r.reduced(4,2).withTrimmedTop(11).toNearestInt();g.setFont(face(12.f));
+    if(sequence.count[size_t(i)]==0){g.setColour(dim);g.drawText("REST",text,Justification::centred);continue;}
+    if(dubbed.isEmpty()){g.setColour(ink);g.drawFittedText(played.trim(),text,Justification::centred,3,.7f);continue;}
+    auto top=text.removeFromTop(text.getHeight()/2);g.setColour(ink);g.drawFittedText(played.isEmpty()?String("-"):played.trim(),top,Justification::centred,1,.6f);
+    g.setColour(Colour(0xff6cc4ff));g.drawFittedText(dubbed.trim(),text,Justification::centred,1,.6f);}
   }
   void mouseDown(const MouseEvent& e) override {for(int i=0;i<jmin(64,sequence.length+1);++i)if(cell(i).contains(e.getPosition())){
     if(i==sequence.length)orbit.editSequence([](Arpeggiator::Sequence& q){q.insertAfter(q.length-1);});select(i);return;}}
@@ -998,7 +1018,7 @@ private:
  struct ShapeStop : Component { ShapeStop(Slider& s,float v):slider(s),value(v){setMouseCursor(MouseCursor::PointingHandCursor);setRepaintsOnMouseActivity(false);}
   void mouseDown(const MouseEvent&) override {slider.setValue(value,sendNotificationSync);} Slider& slider;float value; };
 SequenceEditor sequenceEditor{orbit};
- OwnedArray<ShapeStop> shapeStops;Button* restKey=nullptr;bool restDown=false;TextButton seqMemory,seqEditKey;Label* seqStepLabel=nullptr;
+ OwnedArray<ShapeStop> shapeStops;Button* restKey=nullptr;bool restDown=false;TextButton seqMemory,seqEditKey;Button* recKey=nullptr;Label* seqStepLabel=nullptr;
  std::vector<Rectangle<float>> tagRules; OwnedArray<PanelChoice> panelChoices; OwnedArray<Label> labels; OwnedArray<Fader> faders; OwnedArray<Toggle> toggles; OwnedArray<ChoiceButtons> choices; OwnedArray<WaveKnob> waveKnobs; OwnedArray<SlideSwitch> switches; OwnedArray<ChoiceMenuButton> menuButtons; Slider* delayTimeKnob = nullptr;
  struct Sync { std::unique_ptr<SyncKey> key; std::unique_ptr<SyncKnob> knob; Slider* free = nullptr; Label* value = nullptr; const char* id = ""; bool wasSynced = true; };
  OwnedArray<Sync> syncs;

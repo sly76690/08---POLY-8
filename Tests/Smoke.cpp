@@ -140,7 +140,7 @@ int main() {
  std::cout<<"PASS state restore\n";
  // Host pages: the panel order for controllers such as Push, every parameter present once, short names.
  {auto* first=dynamic_cast<juce::RangedAudioParameter*>(p->getParameters()[0]);auto* ninth=dynamic_cast<juce::RangedAudioParameter*>(p->getParameters()[8]);
-  if(!first||first->paramID!="polyEnv"||!ninth||ninth->paramID!="vco1Wave"||p->getParameters().size()!=117)return 74;
+  if(!first||first->paramID!="polyEnv"||!ninth||ninth->paramID!="vco1Wave"||p->getParameters().size()!=118)return 74;
   for(auto* b:p->getParameters())if(b->getName(100).length()>12){std::cerr<<"Parameter name too long for a controller: "<<b->getName(100)<<"\n";return 75;}}
  std::cout<<"PASS host pages of eight with short names\n";
  p->setRateAndBufferSizeDetails(48000,256);p->prepareToPlay(48000,256);
@@ -338,7 +338,7 @@ int main() {
  };
  collectPanelIds(*editor);
  for(auto* parameter:p->getParameters())if(auto* identified=dynamic_cast<juce::AudioProcessorParameterWithID*>(parameter))
-  if(!panelIds.contains(identified->paramID)&&!juce::StringArray{"osc1Shape","osc2Shape","wave","width","pwm","sub","noise","osc1Level","jupiterMix"}.contains(identified->paramID)) // Poly 8: fixed shapes and DCO kept for old patches only
+  if(!panelIds.contains(identified->paramID)&&!juce::StringArray{"osc1Shape","osc2Shape","wave","width","pwm","sub","noise","osc1Level","jupiterMix","seqOvd"}.contains(identified->paramID)) // Poly 8: fixed shapes and DCO kept for old patches only
    {std::cerr<<"Missing panel control: "<<identified->paramID<<"\n";return 96;}
  std::cout<<"PASS all "<<panelIds.size()<<" parameters have visible panel controls\n";
  // Both range dials retain all six host values and discrete stops.

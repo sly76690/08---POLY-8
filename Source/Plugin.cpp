@@ -82,6 +82,7 @@ public:
    "reverbDamp","reverbColor","reverbMix","lfoManual","lfoTrig","atVolume","atLfo","atDrive",
    "osc2Tune","oscSync","vco2Low","vcoPwm",
    "phaserOn","phaserRate","phaserDepth","phaserFeedback","phaserMix","seqRec","seqRest","seqPlay",  // PHASER, SEQUENCER
+   "seqOvd",
    "osc1Shape","osc2Shape","wave","width","pwm","sub","noise","osc1Level","jupiterMix"}; // fixed shapes and the DCO, kept for old patches                                        // REVERB, EXPRESSION
   // Short names for the host and controller displays (Push shows about a dozen characters).
   static String label(const String& id,const String& longName){
@@ -168,6 +169,7 @@ public:
   keep(std::make_unique<AudioParameterBool>(ParameterID{"seqRec",1},label("seqRec","Seq Record"),false));
   keep(std::make_unique<AudioParameterBool>(ParameterID{"seqRest",1},label("seqRest","Seq Rest"),false));
   keep(std::make_unique<AudioParameterBool>(ParameterID{"seqPlay",1},label("seqPlay","Seq Play"),false));
+  keep(std::make_unique<AudioParameterBool>(ParameterID{"seqOvd",1},label("seqOvd","Seq Overdub"),false)); // the REC key's second state
   keep(std::make_unique<AudioParameterBool>(ParameterID{"polyFilter",1},label("polyFilter","Poly-mod to filters"),false));
   add("osc1Level","Oscillator I level",0,1,1);add("osc2Width","Oscillator II pulse width",.08f,.92f,.5f);
   choice("osc1Octave","VCO 1 range",{"64'","32'","16'","8'","4'","2'"},3);
@@ -303,7 +305,7 @@ public:
   // EDIT (from the panel): the next note or chord replaces (or joins) the selected step, then the next step is selected.
   // PLAY runs the arpeggiator clock over the sequence instead of the pattern; a held key transposes it.
   const bool rec=value("seqRec")>.5f,rest=value("seqRest")>.5f,play=value("seqPlay")>.5f;
-  const bool recording=rec&&!play,overdub=rec&&play,playing=play;
+  const bool ovd=value("seqOvd")>.5f,recording=rec&&!play&&!ovd,overdub=ovd||(rec&&play),playing=play||ovd;
   {const SpinLock::ScopedLockType lock(sequenceLock);
    if(recording&&!wasRecording){sequence.clear();recordHeld.clearQuick();recordChord.clearQuick();currentSequenceSlot.store(-1);}
    const int editing=editStep.load();
@@ -318,7 +320,7 @@ public:
        recordChord.clearQuick();}}}
     if(recording&&rest&&!wasResting&&recordHeld.isEmpty())sequence.add(nullptr,0);}
    else{recordHeld.clearQuick();recordChord.clearQuick();}
-   if(overdub&&sequence.length>0)for(const auto meta:midi){const auto msg=meta.getMessage();if(msg.isNoteOn())sequence.merge(arp.position.load(),msg.getNoteNumber());}
+   if(overdub&&sequence.length>0)for(const auto meta:midi){const auto msg=meta.getMessage();if(msg.isNoteOn())sequence.merge(arp.position.load(),msg.getNoteNumber(),true);}
    if(overdub&&!wasOverdubbing)currentSequenceSlot.store(-1);
    wasRecording=recording;wasOverdubbing=overdub;wasResting=rest;sequenceSteps.store(sequence.length);
    arp.process(midi,buffer.getNumSamples(),value("arpOn")>.5f||playing,bpm,division,playing?4:int(value("arpPattern")),int(value("arpOctaves"))+1,value("arpGate"),samplesToGrid,&sequence,overdub||editing>=0);}

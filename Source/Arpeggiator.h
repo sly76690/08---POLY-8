@@ -7,23 +7,27 @@ public:
  struct Sequence {
   static constexpr int maxSteps=64,maxNotes=8;
   int length=0,root=60; std::array<std::array<int,maxNotes>,maxSteps> notes{}; std::array<int,maxSteps> count{}; // count 0 = rest
-  void clear(){length=0;root=60;count.fill(0);}
-  bool add(const int* chord,int n){if(length>=maxSteps)return false;n=juce::jlimit(0,maxNotes,n);for(int i=0;i<n;++i)notes[size_t(length)][size_t(i)]=chord[i];
+  std::array<std::array<bool,maxNotes>,maxSteps> dubbed{}; // notes added by overdub (shown apart in the step editor)
+  void clear(){length=0;root=60;count.fill(0);for(auto& d:dubbed)d.fill(false);}
+  bool add(const int* chord,int n){if(length>=maxSteps)return false;n=juce::jlimit(0,maxNotes,n);for(int i=0;i<n;++i){notes[size_t(length)][size_t(i)]=chord[i];dubbed[size_t(length)][size_t(i)]=false;}
    count[size_t(length)]=n;if(n>0&&!hasNotes())root=*std::min_element(chord,chord+n);++length;return true;}
   bool hasNotes() const {for(int i=0;i<length;++i)if(count[size_t(i)]>0)return true;return false;}
   // Editing: replace a step, add one note to it, insert a rest after it, remove it. The root follows the first step.
   void updateRoot(){for(int i=0;i<length;++i)if(count[size_t(i)]>0){root=*std::min_element(notes[size_t(i)].begin(),notes[size_t(i)].begin()+count[size_t(i)]);return;}root=60;}
-  void set(int index,const int* chord,int n){if(!juce::isPositiveAndBelow(index,length))return;n=juce::jlimit(0,maxNotes,n);for(int i=0;i<n;++i)notes[size_t(index)][size_t(i)]=chord[i];count[size_t(index)]=n;updateRoot();}
-  void merge(int index,int note){if(!juce::isPositiveAndBelow(index,length))return;auto& c=count[size_t(index)];
-   for(int i=0;i<c;++i)if(notes[size_t(index)][size_t(i)]==note)return;if(c<maxNotes){notes[size_t(index)][size_t(c++)]=note;std::sort(notes[size_t(index)].begin(),notes[size_t(index)].begin()+c);}} // the root stays: added notes do not move the transposition
-  void insertAfter(int index){if(length>=maxSteps)return;index=juce::jlimit(-1,length-1,index);for(int i=length;i>index+1;--i){notes[size_t(i)]=notes[size_t(i-1)];count[size_t(i)]=count[size_t(i-1)];}
+  void set(int index,const int* chord,int n){if(!juce::isPositiveAndBelow(index,length))return;n=juce::jlimit(0,maxNotes,n);for(int i=0;i<n;++i){notes[size_t(index)][size_t(i)]=chord[i];dubbed[size_t(index)][size_t(i)]=false;}count[size_t(index)]=n;updateRoot();}
+  void merge(int index,int note,bool dub=false){if(!juce::isPositiveAndBelow(index,length))return;auto& c=count[size_t(index)];
+   for(int i=0;i<c;++i)if(notes[size_t(index)][size_t(i)]==note)return;if(c>=maxNotes)return;
+   int at=c;while(at>0&&notes[size_t(index)][size_t(at-1)]>note){notes[size_t(index)][size_t(at)]=notes[size_t(index)][size_t(at-1)];dubbed[size_t(index)][size_t(at)]=dubbed[size_t(index)][size_t(at-1)];--at;}
+   notes[size_t(index)][size_t(at)]=note;dubbed[size_t(index)][size_t(at)]=dub;++c;} // kept in pitch order; the root stays // the root stays: added notes do not move the transposition
+  void insertAfter(int index){if(length>=maxSteps)return;index=juce::jlimit(-1,length-1,index);for(int i=length;i>index+1;--i){notes[size_t(i)]=notes[size_t(i-1)];dubbed[size_t(i)]=dubbed[size_t(i-1)];count[size_t(i)]=count[size_t(i-1)];}
    count[size_t(index+1)]=0;++length;}
-  void remove(int index){if(!juce::isPositiveAndBelow(index,length))return;for(int i=index;i<length-1;++i){notes[size_t(i)]=notes[size_t(i+1)];count[size_t(i)]=count[size_t(i+1)];}--length;updateRoot();}
+  void remove(int index){if(!juce::isPositiveAndBelow(index,length))return;for(int i=index;i<length-1;++i){notes[size_t(i)]=notes[size_t(i+1)];dubbed[size_t(i)]=dubbed[size_t(i+1)];count[size_t(i)]=count[size_t(i+1)];}--length;updateRoot();}
   // Text form kept with the patch: steps separated by ';', notes by ',', a rest is 'r'.
   juce::String toString() const {juce::StringArray steps;for(int i=0;i<length;++i){if(count[size_t(i)]==0){steps.add("r");continue;}
-   juce::StringArray n;for(int k=0;k<count[size_t(i)];++k)n.add(juce::String(notes[size_t(i)][size_t(k)]));steps.add(n.joinIntoString(","));}return steps.joinIntoString(";");}
+   juce::StringArray n;for(int k=0;k<count[size_t(i)];++k)n.add(juce::String(notes[size_t(i)][size_t(k)])+(dubbed[size_t(i)][size_t(k)]?"o":""));steps.add(n.joinIntoString(","));}return steps.joinIntoString(";");}
   void fromString(const juce::String& text){clear();for(const auto& step:juce::StringArray::fromTokens(text,";","")){if(step.trim().isEmpty())continue;
-   int chord[maxNotes];int n=0;if(step.trim()!="r")for(const auto& v:juce::StringArray::fromTokens(step,",",""))if(n<maxNotes)chord[n++]=juce::jlimit(0,127,v.getIntValue());add(chord,n);}}
+   int chord[maxNotes];bool dub[maxNotes]{};int n=0;if(step.trim()!="r")for(const auto& v:juce::StringArray::fromTokens(step,",",""))if(n<maxNotes){dub[n]=v.trim().endsWithChar('o');chord[n++]=juce::jlimit(0,127,v.getIntValue());}
+   if(add(chord,n))for(int k=0;k<n;++k)dubbed[size_t(length-1)][size_t(k)]=dub[k];}}
  };
  void prepare(double rate) {sr=rate;output.ensureSize(32768);reset();}
  void reset(){held.fill(0);heldCount=0;remaining=gate=0;activeCount=0;step=0;wasEnabled=false;}
