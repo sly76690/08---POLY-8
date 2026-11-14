@@ -74,7 +74,11 @@ static bool polyModTests(){
    for(const auto meta:m){const auto msg=meta.getMessage();if(!msg.isNoteOn())continue;const int at=blk*512+meta.samplePosition;if(at!=last){steps.push_back({});last=at;}steps.back().push_back(msg.getNoteNumber());}}
   const std::vector<std::vector<int>> expected{{62},{66,69},{64},{62},{66,69},{64}}; // the rest gives no note
   if(!require(steps.size()>=expected.size(),"sequencer plays too few steps"))return false;
-  for(size_t k=0;k<expected.size();++k)if(!require(steps[k]==expected[k],"sequencer chords, rest or transposition wrong"))return false;}
+  for(size_t k=0;k<expected.size();++k)if(!require(steps[k]==expected[k],"sequencer chords, rest or transposition wrong"))return false;
+  // No key held: PLAY alone runs the sequence as recorded.
+  Arpeggiator free;free.prepare(48000);std::vector<int> first;
+  for(int blk=0;blk<40&&first.size()<2;++blk){juce::MidiBuffer m;free.process(m,512,true,120,2,4,1,.5f,-1.,&seq);for(const auto meta:m)if(meta.getMessage().isNoteOn())first.push_back(meta.getMessage().getNoteNumber());}
+  if(!require(first.size()>=2&&first[0]==60&&first[1]==64,"sequencer does not run on its own"))return false;}
  // SEQUENCER recording through the plugin: REC, a note, a chord, REST, a note; the sequence is saved with the patch.
  {std::unique_ptr<juce::AudioProcessor> q(createPluginFilter());q->setRateAndBufferSizeDetails(48000,256);q->prepareToPlay(48000,256);
   auto set=[&](const char* id,float v){for(auto* b:q->getParameters())if(auto* r=dynamic_cast<juce::RangedAudioParameter*>(b))if(r->paramID==id)r->setValueNotifyingHost(v);};

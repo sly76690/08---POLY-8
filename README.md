@@ -27,7 +27,7 @@ bash tools/paquet.sh
 - Le DCO hérité d'Orbit reste dans le moteur (paramètres cachés) pour relire les anciens patchs.
 - **Ladder** : au-dessus de RES 9 il auto-oscille (sinus sur FREQ) ; en dessous, courbe d'Orbit inchangée. HPF : passe-haut 2 pôles sans résonance (fader HPF du FILTER A).
 - Façade : bandeaux gris acier, texte noir ; logo O8 bleu et gris clair.
-- **SEQUENCER** (section ARPEGGIO / SEQUENCER) : REC, puis une note ou un accord par pas (REST = silence), 64 pas maximum ; PLAY, puis une touche tenue transpose la séquence. La séquence est enregistrée avec le patch.
+- **SEQUENCER** (section ARPEGGIO / SEQUENCER) : REC, puis une note ou un accord par pas (REST = silence), 64 pas maximum ; PLAY la lance toute seule ; une touche tenue la transpose. La séquence est enregistrée avec le patch.
 - **EFFECTS** : chorus (OFF / I / II / I+II, CH MIX), PHASER (RATE, DEPTH, FDBK, PH MIX) et DRIVE de sortie ; le DRIVE des voix est dans MIXER.
 - Tests : 37, dont `Tests/PolyMod.h` (SHAPE, mixer, sources et destinations de la Poly-Mod).
 

@@ -901,7 +901,7 @@ private:
   String shown = line;
   const int steps = orbit.sequenceLength();
   if (orbit.state.getRawParameterValue("seqRec")->load() > .5f) shown = "SEQ REC    STEP " + String(steps + 1) + " / 64    REST = SILENCE";
-  else if (orbit.state.getRawParameterValue("seqPlay")->load() > .5f) shown = "SEQ PLAY    " + String(steps) + " STEPS    HOLD A KEY";
+  else if (orbit.state.getRawParameterValue("seqPlay")->load() > .5f) shown = "SEQ PLAY    " + String(steps) + " STEPS    KEY = TRANSPOSE";
   if (orbit.isLearning()) { const int touched = orbit.lastTouchedParameter();
    shown = touched < 0 ? String("MIDI LEARN    TOUCH A CONTROL") : "MIDI LEARN    " + orbit.getParameters()[touched]->getName(14).toUpperCase() + "  <  MOVE A CC"; }
   if (shown != displayLine) { displayLine = shown; surface.repaint(510, 22, 344, 30); }

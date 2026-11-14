@@ -1,7 +1,7 @@
 #pragma once
 // Sample-clock arpeggiator. Held keys retain their MIDI channels and velocities.
 // Pattern 4 (SEQ) plays a recorded sequence: up to 64 steps, each a chord of up to 8 notes or a rest. The lowest held
-// key transposes it, relative to the lowest note of its first step (root).
+// key transposes it, relative to the lowest note of its first step (root); with no key held it plays as recorded.
 class Arpeggiator {
 public:
  struct Sequence {
@@ -43,13 +43,16 @@ public:
     ++it;
    }
    if(!enabled) continue;
-   if(heldCount==0){stop(sample);step=0;if(grid){if(remaining--<=0)remaining=interval-1;}else remaining=0;continue;}
+   // A recorded sequence runs on its own once PLAY is on; a held key only transposes it.
+   const bool freeRunning=pattern==4&&sequence!=nullptr&&sequence->length>0;
+   if(heldCount==0&&!freeRunning){stop(sample);step=0;if(grid){if(remaining--<=0)remaining=interval-1;}else remaining=0;continue;}
    if(activeCount>0 && --gate<=0) stop(sample);
    if(remaining--<=0) {
     stop(sample);int count=0;
     if(pattern==4&&sequence!=nullptr&&sequence->length>0){ // SEQ: the recorded step, moved by the lowest held key
      int lowest=-1;float velocity=0;for(int key=0;key<2048;++key)if(held[size_t(key)]>0&&(lowest<0||key%128<lowest%128)){lowest=key;velocity=held[size_t(key)];}
-     const int index=step%sequence->length,shift=lowest%128-sequence->root,channel=lowest/128;
+     if(lowest<0)velocity=.8f; // no key held: the sequence as recorded
+     const int index=step%sequence->length,shift=lowest<0?0:lowest%128-sequence->root,channel=lowest<0?0:lowest/128;
      for(int k=0;k<sequence->count[size_t(index)]&&activeCount<int(activeNotes.size());++k){
       const int note=juce::jlimit(0,127,sequence->notes[size_t(index)][size_t(k)]+shift);activeNotes[size_t(activeCount++)]=channel*128+note;
       output.addEvent(juce::MidiMessage::noteOn(channel+1,note,velocity),sample);}
