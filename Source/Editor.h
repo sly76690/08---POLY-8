@@ -716,26 +716,28 @@ private:
   menuChoice("arpDivision","STEP",cells[3]);menuChoice("arpOctaves","OCT",cells[4]);compactKnob("arpTempo","TEMPO",cells[5]);compactKnob("arpGate","GATE",cells[6]);
   // SEQUENCER keys: REC, then play one note or chord per step (REST for a silent step); PLAY, then hold a key to transpose.
   // SEQUENCER: its own section, on the arpeggio clock (TEMPO, STEP, GATE, SYNC).
-  area=section("SEQUENCER",teal,{830,lowerY,250,lowerH});cells=split(area,{1,1,1,1,1.45f});
+  area=section("SEQUENCER",teal,{830,lowerY,250,lowerH});cells=split(area,{1,1,1,1,1,1.45f});
   // REC works like a looper pedal: REC (red) records a new sequence; pressed again, OVD (blue): the recording ends, the
   // sequence plays and what you play joins it; pressed again, overdub ends and the sequence keeps playing.
   printedToggle("seqRec","REC",cells[0].withTrimmedTop(18));recKey=&toggles.getLast()->button;toggles.getLast()->attachment.reset();
   recKey->setClickingTogglesState(false);recKey->onClick=[this]{
    auto setParam=[this](const char* id,bool on){auto* p=orbit.state.getParameter(id);p->beginChangeGesture();p->setValueNotifyingHost(on?1.f:0.f);p->endChangeGesture();};
    const bool rec=orbit.state.getRawParameterValue("seqRec")->load()>.5f,ovd=orbit.state.getRawParameterValue("seqOvd")->load()>.5f;
+   const bool play=orbit.state.getRawParameterValue("seqPlay")->load()>.5f;
    if(ovd)setParam("seqOvd",false);
    else if(rec){setParam("seqRec",false);setParam("seqPlay",true);setParam("seqOvd",true);}
-   else{setParam("seqPlay",false);setParam("seqRec",true);}};printedToggle("seqRest","REST",cells[1].withTrimmedTop(18));printedToggle("seqPlay","PLAY",cells[2].withTrimmedTop(18));
-  restKey=&toggles[toggles.size()-2]->button;restKey->setClickingTogglesState(false); // REST is a momentary key
+   else if(play)setParam("seqOvd",true); // REC while the sequence plays: live recording, quantized to the steps
+   else{setParam("seqPlay",false);setParam("seqRec",true);}};printedToggle("seqRest","REST",cells[1].withTrimmedTop(18));printedToggle("seqPlay","PLAY",cells[2].withTrimmedTop(18));printedToggle("seqLive","LIVE",cells[3].withTrimmedTop(18));
+  restKey=&toggles[toggles.size()-3]->button;restKey->setClickingTogglesState(false); // REST is a momentary key
   // MEMORY: load one of the eight stored sequences, or store the current one, from a menu.
   // EDIT opens the step grid over the panel (the keyboard stays in view for playing the notes in).
-  caption("EDIT",cells[3].withHeight(14),-1,11.f);seqEditKey.setClickingTogglesState(true);seqEditKey.getProperties().set("parameterId",String());
-  place(seqEditKey,cells[3].withTrimmedTop(26).withSizeKeepingCentre(jmin(cells[3].getWidth()-6,40),26),-1);seqEditKey.onClick=[this]{showSequenceEditor(seqEditKey.getToggleState());};
+  caption("EDIT",cells[4].withHeight(14),-1,11.f);seqEditKey.setClickingTogglesState(true);seqEditKey.getProperties().set("parameterId",String());
+  place(seqEditKey,cells[4].withTrimmedTop(26).withSizeKeepingCentre(jmin(cells[4].getWidth()-6,40),26),-1);seqEditKey.onClick=[this]{showSequenceEditor(seqEditKey.getToggleState());};
   surface.addChildComponent(sequenceEditor);sequenceEditor.setBounds(32,row2Y,contentW,lowerY+lowerH-row2Y);sequenceEditor.onClose=[this]{seqEditKey.setToggleState(false,sendNotificationSync);};
-  caption("MEMORY",cells[4].withHeight(14),-1,11.f);
-  seqMemory.getProperties().set("liveText",true);place(seqMemory,{cells[4].getX(),cells[4].getY()+19,cells[4].getWidth(),28},-1);
+  caption("MEMORY",cells[5].withHeight(14),-1,11.f);
+  seqMemory.getProperties().set("liveText",true);place(seqMemory,{cells[5].getX(),cells[5].getY()+19,cells[5].getWidth(),28},-1);
   // the step being played or recorded, under MEMORY
-  caption({},{cells[4].getX(),cells[4].getY()+52,cells[4].getWidth(),14},-1,10.f,led);seqStepLabel=labels.getLast();seqStepLabel->setFont(mono(11.f));
+  caption({},{cells[5].getX(),cells[5].getY()+52,cells[5].getWidth(),14},-1,10.f,led);seqStepLabel=labels.getLast();seqStepLabel->setFont(mono(11.f));
   seqMemory.onClick=[this]{PopupMenu menu;menu.addSectionHeader("LOAD");
    for(int i=0;i<Orbit::sequenceSlots;++i){const bool used=orbit.sequenceSlotUsed(i);menu.addItem(1+i,"SEQ "+String(i+1)+(used?"   "+String(orbit.sequenceSlotLength(i))+" steps":String("   empty")),used,orbit.sequenceSlot()==i);}
    menu.addSectionHeader("STORE THE CURRENT SEQUENCE");
@@ -932,9 +934,9 @@ private:
   midiButton.setToggleState(orbit.isLearning(), dontSendNotification);
   String shown = line;
   const int steps = orbit.sequenceLength();
-  if (orbit.state.getRawParameterValue("seqOvd")->load() > .5f) shown = "SEQ OVERDUB    " + String(steps) + " STEPS    PLAY TO ADD NOTES";
+  if (orbit.state.getRawParameterValue("seqOvd")->load() > .5f) shown = "SEQ OVERDUB    " + String(steps) + " STEPS    QUANTIZED";
   else if (orbit.state.getRawParameterValue("seqRec")->load() > .5f) shown = "SEQ REC    STEP " + String(steps + 1) + " / 64    REST = SILENCE";
-  else if (orbit.state.getRawParameterValue("seqPlay")->load() > .5f) shown = (orbit.sequenceSlot() >= 0 ? "SEQ " + String(orbit.sequenceSlot() + 1) : String("SEQ PLAY")) + "    " + String(steps) + " STEPS    KEY = TRANSPOSE";
+  else if (orbit.state.getRawParameterValue("seqPlay")->load() > .5f) shown = (orbit.sequenceSlot() >= 0 ? "SEQ " + String(orbit.sequenceSlot() + 1) : String("SEQ PLAY")) + "    " + String(steps) + " STEPS    " + (orbit.state.getRawParameterValue("seqLive")->load() > .5f ? "KEYS PLAY OVER" : "KEY = TRANSPOSE");
   sequenceEditor.refresh();
   if (recKey != nullptr) { const bool rec = orbit.state.getRawParameterValue("seqRec")->load() > .5f, ovd = orbit.state.getRawParameterValue("seqOvd")->load() > .5f;
    recKey->setToggleState(rec || ovd, dontSendNotification); recKey->setButtonText(ovd ? "OVD" : "REC");

@@ -41,8 +41,8 @@ public:
  void reset(){held.fill(0);heldCount=0;remaining=gate=0;activeCount=0;step=0;wasEnabled=false;}
  // samplesToGrid: when >= 0, the number of samples from the start of this block to the next step of the host's
  // beat grid; steps then fall on the grid instead of starting with the first key.
- void process(juce::MidiBuffer& input,int samples,bool enabled,double bpm,int division,int pattern,int octaves,float gateRatio,double samplesToGrid=-1.,const Sequence* sequence=nullptr,bool passNotes=false) {
-  output.clear();
+ void process(juce::MidiBuffer& input,int samples,bool enabled,double bpm,int division,int pattern,int octaves,float gateRatio,double samplesToGrid=-1.,const Sequence* sequence=nullptr,bool passNotes=false,bool capture=false) {
+  output.clear();capturedCount=0;
   if(enabled!=wasEnabled) {
    for(int ch=1;ch<=16;++ch) output.addEvent(juce::MidiMessage::allNotesOff(ch),0);
    activeCount=0;remaining=gate=0;step=0;
@@ -56,7 +56,13 @@ public:
   for(int sample=0;sample<samples;++sample) {
    while(it!=end && (*it).samplePosition<=sample) {
     const auto msg=(*it).getMessage();
-    if(passNotes&&msg.isNoteOnOrOff()){output.addEvent(msg,sample);++it;continue;} // overdub: the keys play through
+    if(passNotes&&msg.isNoteOnOrOff()){ // overdub, live: the keys play through
+     // CAPTURE (live recording): a key joins the nearest step. Played in the second half of a step, it belongs to the
+     // next one, which then does not play it again over the held key.
+     if(capture&&msg.isNoteOn()&&pattern==4&&sequence!=nullptr&&sequence->length>0&&capturedCount<int(capturedNote.size())){
+      const bool late=interval-1-remaining>=interval/2;const int note=msg.getNoteNumber();
+      capturedStep[size_t(capturedCount)]=late?step%sequence->length:position.load();capturedNote[size_t(capturedCount++)]=note;if(late)skip[size_t(note)]=true;}
+     output.addEvent(msg,sample);++it;continue;}
     if(msg.isNoteOn()) {auto& velocity=held[size_t((msg.getChannel()-1)*128+msg.getNoteNumber())];if(velocity==0)++heldCount;velocity=msg.getFloatVelocity();}
     else if(msg.isNoteOff()) {auto& velocity=held[size_t((msg.getChannel()-1)*128+msg.getNoteNumber())];if(velocity>0)--heldCount;velocity=0;}
     else if(msg.isAllNotesOff()||msg.isAllSoundOff()) {for(int n=0;n<128;++n) {auto& velocity=held[size_t((msg.getChannel()-1)*128+n)];if(velocity>0)--heldCount;velocity=0;}stop(sample);remaining=0;}
@@ -75,8 +81,9 @@ public:
      if(lowest<0)velocity=.8f; // no key held: the sequence as recorded
      const int index=step%sequence->length;position.store(index);const int shift=lowest<0?0:lowest%128-sequence->root,channel=lowest<0?0:lowest/128;
      for(int k=0;k<sequence->count[size_t(index)]&&activeCount<int(activeNotes.size());++k){
-      const int note=juce::jlimit(0,127,sequence->notes[size_t(index)][size_t(k)]+shift);activeNotes[size_t(activeCount++)]=channel*128+note;
+      const int note=juce::jlimit(0,127,sequence->notes[size_t(index)][size_t(k)]+shift);if(skip[size_t(note)])continue;activeNotes[size_t(activeCount++)]=channel*128+note;
       output.addEvent(juce::MidiMessage::noteOn(channel+1,note,velocity),sample);}
+     skip.fill(false);
      step=(step+1)%1000000;gate=juce::jmax(1,int(interval*gateRatio));remaining=interval-1;continue;
     }
     for(int octave=0;octave<octaves;++octave) for(int n=0;n<128;++n) for(int ch=0;ch<16;++ch) {
@@ -91,8 +98,9 @@ public:
  }
 private:
  void stop(int sample){for(int i=0;i<activeCount;++i){const int a=activeNotes[size_t(i)];output.addEvent(juce::MidiMessage::noteOff(a/128+1,a%128),sample);}activeCount=0;}
+ public: std::array<int,64> capturedStep{},capturedNote{};int capturedCount=0; // keys caught by capture, for the processor to write
  public: std::atomic<int> position{0}; // the sequence step last played, for the panel
  private:
  double sr=44100;int heldCount=0,remaining=0,gate=0,activeCount=0,step=0;bool wasEnabled=false;std::array<int,16> activeNotes{};
- std::array<float,2048> held{};std::array<int,6144> notes{};std::array<float,6144> velocities{};juce::MidiBuffer output;juce::Random random{106};
+ std::array<bool,128> skip{};std::array<float,2048> held{};std::array<int,6144> notes{};std::array<float,6144> velocities{};juce::MidiBuffer output;juce::Random random{106};
 };

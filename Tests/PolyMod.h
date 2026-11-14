@@ -102,6 +102,17 @@ static bool polyModTests(){
   juce::MemoryBlock dub;q->getStateInformation(dub);auto xml3=juce::AudioProcessor::getXmlFromBinary(dub.getData(),int(dub.getSize()));
   const auto text=xml3?xml3->getStringAttribute("sequence"):juce::String();
   if(!require(text.contains("50o")&&text.contains("64,67")&&juce::StringArray::fromTokens(text,";","").size()==4,"overdub wrong: "+text))return false;}
+ // LIVE RECORDING: REC then PLAY on an empty sequence: a blank 16-step loop, each key on the nearest step.
+ {std::unique_ptr<juce::AudioProcessor> q(createPluginFilter());q->setRateAndBufferSizeDetails(48000,256);q->prepareToPlay(48000,256);
+  auto set=[&](const char* id,float v){for(auto* b:q->getParameters())if(auto* r=dynamic_cast<juce::RangedAudioParameter*>(b))if(r->paramID==id)r->setValueNotifyingHost(r->convertTo0to1(v));};
+  int blocks=0;auto block=[&](std::initializer_list<juce::MidiMessage> msgs){juce::AudioBuffer<float> b(2,256);b.clear();juce::MidiBuffer m;for(auto& msg:msgs)m.addEvent(msg,0);q->processBlock(b,m);++blocks;};
+  set("arpSync",0);set("arpTempo",120);set("arpDivision",2);set("seqRec",1);block({});set("seqPlay",1);blocks=0; // a step: 6000 samples
+  while(blocks<14)block({});block({juce::MidiMessage::noteOn(1,60,.8f)});block({juce::MidiMessage::noteOff(1,60)}); // 3584: late, step 2
+  while(blocks<95)block({});block({juce::MidiMessage::noteOn(1,62,.8f)});block({juce::MidiMessage::noteOff(1,62)});  // 24320: early, step 5
+  set("seqRec",0);set("seqPlay",0);block({});
+  juce::MemoryBlock data;q->getStateInformation(data);auto xml=juce::AudioProcessor::getXmlFromBinary(data.getData(),int(data.getSize()));
+  const auto steps=juce::StringArray::fromTokens(xml?xml->getStringAttribute("sequence"):juce::String(),";","");
+  if(!require(steps.size()==16&&steps[1]=="60"&&steps[4]=="62"&&steps[0]=="r","live recording wrong: "+steps.joinIntoString(";")))return false;}
  // PHASER: heard when on, transparent when off.
  {const auto off=plug({{"phaserOn",0},{"cutoff",8000}}),on=plug({{"phaserOn",1},{"phaserMix",1},{"cutoff",8000}});
   if(!require(diff(off,on)>.001,"phaser inactive"))return false;for(float v:on)if(!require(std::isfinite(v)&&std::abs(v)<4.f,"phaser unstable"))return false;}

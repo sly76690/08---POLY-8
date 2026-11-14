@@ -41,10 +41,10 @@ public:
  String soundName() const {return state.state.getProperty("soundName").toString();}
  StringArray soundNames() const {auto names=PresetStorage(sharedRoot(),"Sounds").names();names.mergeArray(PresetStorage(presetRoot(),"Sounds").names());names.mergeArray(CinematicBank::names());names.sort(true);return names;}
  Result loadSound(const String& name){auto xml=CinematicBank::load(name);if(!xml)xml=PresetStorage(presetRoot(),"Sounds").load(name);if(!xml)xml=PresetStorage(sharedRoot(),"Sounds").load(name);if(!xml)return Result::fail("Son absent ou invalide dans Presets/Sounds.");
-  MemoryBlock data;copyXmlToBinary(*xml,data);setStateInformation(data.getData(),int(data.getSize()));state.state.removeProperty("userPresetName",nullptr);state.state.setProperty("soundName",name,nullptr);modified.store(false);return Result::ok();}
+  MemoryBlock data;copyXmlToBinary(*xml,data);loadingPreset.store(true);setStateInformation(data.getData(),int(data.getSize()));loadingPreset.store(false);state.state.removeProperty("userPresetName",nullptr);state.state.setProperty("soundName",name,nullptr);modified.store(false);return Result::ok();}
  bool userPresetExists(const String& name) const {return PresetStorage(presetRoot()).exists(name);}
  Result saveUserPreset(const String& name,bool replace=false){auto saved=state.copyState();saved.setProperty("sequence",sequenceText(),nullptr);saved.setProperty("program",currentProgram.load(),nullptr);saved.setProperty("modified",false,nullptr);saved.setProperty("userPresetName",name,nullptr);saved.removeProperty("soundName",nullptr);auto xml=saved.createXml();auto result=PresetStorage(presetRoot()).save(name,*xml,replace);if(result.wasOk()){state.state.setProperty("userPresetName",name,nullptr);state.state.removeProperty("soundName",nullptr);modified.store(false);}return result;}
- Result loadUserPreset(const String& name){auto xml=PresetStorage(presetRoot()).load(name);if(!xml)return Result::fail("Preset absent, invalide ou inaccessible dans Presets/User.");MemoryBlock data;copyXmlToBinary(*xml,data);setStateInformation(data.getData(),int(data.getSize()));state.state.removeProperty("soundName",nullptr);state.state.setProperty("userPresetName",name,nullptr);modified.store(false);return Result::ok();}
+ Result loadUserPreset(const String& name){auto xml=PresetStorage(presetRoot()).load(name);if(!xml)return Result::fail("Preset absent, invalide ou inaccessible dans Presets/User.");MemoryBlock data;copyXmlToBinary(*xml,data);loadingPreset.store(true);setStateInformation(data.getData(),int(data.getSize()));loadingPreset.store(false);state.state.removeProperty("soundName",nullptr);state.state.setProperty("userPresetName",name,nullptr);modified.store(false);return Result::ok();}
  bool isPatchModified() const {return modified.load();}
  String sequenceText(){const SpinLock::ScopedLockType lock(sequenceLock);return sequence.toString();}
  // SEQUENCE MEMORIES: eight slots kept apart from the sounds (Presets/Sequences/SEQ n.txt), so a sequence can be
@@ -82,7 +82,7 @@ public:
    "reverbDamp","reverbColor","reverbMix","lfoManual","lfoTrig","atVolume","atLfo","atDrive",
    "osc2Tune","oscSync","vco2Low","vcoPwm",
    "phaserOn","phaserRate","phaserDepth","phaserFeedback","phaserMix","seqRec","seqRest","seqPlay",  // PHASER, SEQUENCER
-   "seqOvd",
+   "seqOvd","seqLive",
    "osc1Shape","osc2Shape","wave","width","pwm","sub","noise","osc1Level","jupiterMix"}; // fixed shapes and the DCO, kept for old patches                                        // REVERB, EXPRESSION
   // Short names for the host and controller displays (Push shows about a dozen characters).
   static String label(const String& id,const String& longName){
@@ -170,6 +170,7 @@ public:
   keep(std::make_unique<AudioParameterBool>(ParameterID{"seqRest",1},label("seqRest","Seq Rest"),false));
   keep(std::make_unique<AudioParameterBool>(ParameterID{"seqPlay",1},label("seqPlay","Seq Play"),false));
   keep(std::make_unique<AudioParameterBool>(ParameterID{"seqOvd",1},label("seqOvd","Seq Overdub"),false)); // the REC key's second state
+  keep(std::make_unique<AudioParameterBool>(ParameterID{"seqLive",1},label("seqLive","Seq Live"),false)); // LIVE: while the sequence plays, the keys play over it
   keep(std::make_unique<AudioParameterBool>(ParameterID{"polyFilter",1},label("polyFilter","Poly-mod to filters"),false));
   add("osc1Level","Oscillator I level",0,1,1);add("osc2Width","Oscillator II pulse width",.08f,.92f,.5f);
   choice("osc1Octave","VCO 1 range",{"64'","32'","16'","8'","4'","2'"},3);
@@ -245,7 +246,7 @@ public:
   if(!isPositiveAndBelow(index,getNumPrograms())) return;
   const auto& p=patches()[size_t(index)];
   // A patch change leaves the performance settings alone: output level, arpeggiator, hold, bend range.
-  static const StringArray performance{"gain","arpOn","arpSync","arpTempo","arpGate","arpDivision","arpPattern","arpOctaves","hold","bendRange"};
+  static const StringArray performance{"gain","arpOn","arpSync","arpTempo","arpGate","arpDivision","arpPattern","arpOctaves","hold","bendRange","seqRec","seqRest","seqPlay","seqOvd","seqLive"};
   for(auto* param:getParameters()){if(auto* identified=dynamic_cast<AudioProcessorParameterWithID*>(param))if(performance.contains(identified->paramID))continue;param->setValueNotifyingHost(param->getDefaultValue());}
   auto set=[&](const char* id,float value){auto* param=state.getParameter(id);param->setValueNotifyingHost(param->convertTo0to1(value));};
   set("mode",float(p.engine));set("cutoff",p.cutoff);set("resonance",p.resonance);set("attack",p.attack);set("decay",p.decay);set("sustain",p.sustain);set("release",p.release);set("wave",p.wave);set("sub",p.sub);set("detune",p.detune);set("chorus",p.chorus);set("env",p.amount);
@@ -320,10 +321,15 @@ public:
        recordChord.clearQuick();}}}
     if(recording&&rest&&!wasResting&&recordHeld.isEmpty())sequence.add(nullptr,0);}
    else{recordHeld.clearQuick();recordChord.clearQuick();}
-   if(overdub&&sequence.length>0)for(const auto meta:midi){const auto msg=meta.getMessage();if(msg.isNoteOn())sequence.merge(arp.position.load(),msg.getNoteNumber(),true);}
-   if(overdub&&!wasOverdubbing)currentSequenceSlot.store(-1);
-   wasRecording=recording;wasOverdubbing=overdub;wasResting=rest;sequenceSteps.store(sequence.length);
-   arp.process(midi,buffer.getNumSamples(),value("arpOn")>.5f||playing,bpm,division,playing?4:int(value("arpPattern")),int(value("arpOctaves"))+1,value("arpGate"),samplesToGrid,&sequence,overdub||editing>=0);}
+   // LIVE RECORDING: overdub on an empty sequence starts a blank 16-step loop; what is played lands on it, quantized to
+   // the nearest step, on the SEQ line (on the OVD line when the loop already held notes).
+   if(overdub&&!wasOverdubbing){currentSequenceSlot.store(-1);liveFresh=sequence.length==0;if(liveFresh)for(int i=0;i<16;++i)sequence.add(nullptr,0);}
+   if(!overdub&&wasOverdubbing&&liveFresh){sequence.updateRoot();liveFresh=false;}
+   wasRecording=recording;wasOverdubbing=overdub;wasResting=rest;
+   const bool live=playing&&value("seqLive")>.5f;
+   arp.process(midi,buffer.getNumSamples(),value("arpOn")>.5f||playing,bpm,division,playing?4:int(value("arpPattern")),int(value("arpOctaves"))+1,value("arpGate"),samplesToGrid,&sequence,overdub||editing>=0||live,overdub);
+   for(int i=0;i<arp.capturedCount;++i)sequence.merge(arp.capturedStep[size_t(i)],arp.capturedNote[size_t(i)],!liveFresh);
+   sequenceSteps.store(sequence.length);}
   int mode=state.getRawParameterValue("mode")->load()>0.5f?1:0;
   voices8.updateMode();voices6.updateMode();
   if(mode!=lastMode) {voices8.allNotesOff(0,false);voices6.allNotesOff(0,false);lastMode=mode;}
@@ -386,6 +392,13 @@ public:
     for(auto* entry:map->getChildIterator()){const int cc=entry->getIntAttribute("cc",-1);const int index=parameterIndex(entry->getStringAttribute("id"));if(isPositiveAndBelow(cc,128)&&index>=0)ccTarget[size_t(cc)].store(index);}
     xml->removeChildElement(map,true);}
    auto restored=ValueTree::fromXml(*xml);
+   // LIVE: a sound or preset changed on stage keeps the sequencer keys as they are; while the sequence runs it also keeps
+   // the sequence and its clock, so the loop goes on with the new sound.
+   if(loadingPreset.load()){auto value=[this](const String& id){return state.getRawParameterValue(id)->load();};const bool running=value("seqPlay")>.5f||value("seqOvd")>.5f;
+    StringArray kept{"seqRec","seqRest","seqPlay","seqOvd","seqLive"};if(running){kept.addArray(StringArray{"arpTempo","arpDivision","arpGate","arpSync"});restored.removeProperty("sequence",nullptr);}
+    for(const auto& id:kept){ValueTree child;for(auto c:restored)if(c.getProperty("id").toString()==id){child=c;break;}
+     if(!child.isValid()){child=ValueTree("PARAM");child.setProperty("id",id,nullptr);restored.addChild(child,-1,nullptr);}
+     child.setProperty("value",value(id),nullptr);}}
    // A patch saved with a sequence brings it back; one saved without leaves the current sequence alone.
    if(restored.hasProperty("sequence")){const SpinLock::ScopedLockType lock(sequenceLock);sequence.fromString(restored.getProperty("sequence").toString());sequenceSteps.store(sequence.length);currentSequenceSlot.store(-1);restored.removeProperty("sequence",nullptr);}
    // Sessions and presets saved before state version 2 stored chorus mode as 0 = I, 1 = II.
@@ -430,7 +443,7 @@ private:
  private:
  std::atomic<bool> modified{false};
  std::atomic<int> currentProgram{0};
- GlideMemory previousSix,previousEight;double sampleRate=44100;Arpeggiator arp;Arpeggiator::Sequence sequence;SpinLock sequenceLock;Array<int> recordHeld,recordChord;bool wasRecording=false,wasResting=false,wasOverdubbing=false;dsp::Phaser<float> phaser;CharacterDelay echo;OrbitReverb reverb;NoteHold hold;
+ GlideMemory previousSix,previousEight;double sampleRate=44100;Arpeggiator arp;Arpeggiator::Sequence sequence;SpinLock sequenceLock;Array<int> recordHeld,recordChord;bool wasRecording=false,wasResting=false,wasOverdubbing=false,liveFresh=false;std::atomic<bool> loadingPreset{false};dsp::Phaser<float> phaser;CharacterDelay echo;OrbitReverb reverb;NoteHold hold;
  VoiceAllocator voices8,voices6;EnsembleChorus chorus;dsp::Oversampling<float> drivePass{2,1,dsp::Oversampling<float>::filterHalfBandPolyphaseIIR,true,false};int driveBlock=512;SmoothedValue<float> gain;int lastMode=-1;
 };
 #include "Editor.h"
