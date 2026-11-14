@@ -59,6 +59,10 @@ public:
   {const SpinLock::ScopedLockType lock(sequenceLock);sequence.fromString(text);sequenceSteps.store(sequence.length);}currentSequenceSlot.store(slot);return true;}
  int sequenceSlot() const {return currentSequenceSlot.load();}
  int sequencePosition() const {return arp.position.load();}
+ // Step editing from the panel (message thread). editStep: the selected step, -1 when the editor is closed.
+ std::atomic<int> editStep{-1};std::atomic<bool> editAdds{false};
+ Arpeggiator::Sequence sequenceCopy(){const SpinLock::ScopedLockType lock(sequenceLock);return sequence;}
+ void editSequence(const std::function<void(Arpeggiator::Sequence&)>& change){{const SpinLock::ScopedLockType lock(sequenceLock);change(sequence);sequenceSteps.store(sequence.length);}currentSequenceSlot.store(-1);}
  std::atomic<int> currentSequenceSlot{-1};
  int sequenceLength() const {return sequenceSteps.load();}
  std::atomic<int> sequenceSteps{0};
@@ -294,18 +298,29 @@ public:
     samplesToGrid=(into<halfSample||step-into<halfSample)?0.:(step-into)*60./bpm*sampleRate;
    }
   }
-  // SEQUENCER. REC (from off to on) starts a new sequence; each time every key is up again, the keys pressed since
-  // become one step. REST adds a silent step. PLAY runs the arpeggiator clock over the sequence instead of the pattern.
-  const bool recording=value("seqRec")>.5f,rest=value("seqRest")>.5f,playing=value("seqPlay")>.5f&&!recording;
+  // SEQUENCER. REC while stopped starts a new sequence: each time every key is up again, the keys pressed since become
+  // one step; REST adds a silent step. REC while PLAY runs is OVERDUB: each key pressed joins the step being played.
+  // EDIT (from the panel): the next note or chord replaces (or joins) the selected step, then the next step is selected.
+  // PLAY runs the arpeggiator clock over the sequence instead of the pattern; a held key transposes it.
+  const bool rec=value("seqRec")>.5f,rest=value("seqRest")>.5f,play=value("seqPlay")>.5f;
+  const bool recording=rec&&!play,overdub=rec&&play,playing=play;
   {const SpinLock::ScopedLockType lock(sequenceLock);
    if(recording&&!wasRecording){sequence.clear();recordHeld.clearQuick();recordChord.clearQuick();currentSequenceSlot.store(-1);}
-   if(recording){for(const auto meta:midi){const auto msg=meta.getMessage();
+   const int editing=editStep.load();
+   if(recording||(editing>=0&&!play)){for(const auto meta:midi){const auto msg=meta.getMessage();
      if(msg.isNoteOn()){recordHeld.addIfNotAlreadyThere(msg.getNoteNumber());recordChord.addIfNotAlreadyThere(msg.getNoteNumber());}
      else if(msg.isNoteOff()){recordHeld.removeFirstMatchingValue(msg.getNoteNumber());
-      if(recordHeld.isEmpty()&&!recordChord.isEmpty()){recordChord.sort();sequence.add(recordChord.getRawDataPointer(),recordChord.size());recordChord.clearQuick();}}}
-    if(rest&&!wasResting&&recordHeld.isEmpty())sequence.add(nullptr,0);}
-   wasRecording=recording;wasResting=rest;sequenceSteps.store(sequence.length);
-   arp.process(midi,buffer.getNumSamples(),value("arpOn")>.5f||playing,bpm,division,playing?4:int(value("arpPattern")),int(value("arpOctaves"))+1,value("arpGate"),samplesToGrid,&sequence);}
+      if(recordHeld.isEmpty()&&!recordChord.isEmpty()){recordChord.sort();
+       if(recording)sequence.add(recordChord.getRawDataPointer(),recordChord.size());
+       else{if(editAdds.load())for(int n:recordChord)sequence.merge(editing,n);else sequence.set(editing,recordChord.getRawDataPointer(),recordChord.size());
+        editStep.store(jmin(editing+1,jmax(0,sequence.length-1)));}
+       recordChord.clearQuick();}}}
+    if(recording&&rest&&!wasResting&&recordHeld.isEmpty())sequence.add(nullptr,0);}
+   else{recordHeld.clearQuick();recordChord.clearQuick();}
+   if(overdub&&sequence.length>0)for(const auto meta:midi){const auto msg=meta.getMessage();if(msg.isNoteOn())sequence.merge(arp.position.load(),msg.getNoteNumber());}
+   if(overdub&&!wasOverdubbing)currentSequenceSlot.store(-1);
+   wasRecording=recording;wasOverdubbing=overdub;wasResting=rest;sequenceSteps.store(sequence.length);
+   arp.process(midi,buffer.getNumSamples(),value("arpOn")>.5f||playing,bpm,division,playing?4:int(value("arpPattern")),int(value("arpOctaves"))+1,value("arpGate"),samplesToGrid,&sequence,overdub);}
   int mode=state.getRawParameterValue("mode")->load()>0.5f?1:0;
   voices8.updateMode();voices6.updateMode();
   if(mode!=lastMode) {voices8.allNotesOff(0,false);voices6.allNotesOff(0,false);lastMode=mode;}
@@ -412,7 +427,7 @@ private:
  private:
  std::atomic<bool> modified{false};
  std::atomic<int> currentProgram{0};
- GlideMemory previousSix,previousEight;double sampleRate=44100;Arpeggiator arp;Arpeggiator::Sequence sequence;SpinLock sequenceLock;Array<int> recordHeld,recordChord;bool wasRecording=false,wasResting=false;dsp::Phaser<float> phaser;CharacterDelay echo;OrbitReverb reverb;NoteHold hold;
+ GlideMemory previousSix,previousEight;double sampleRate=44100;Arpeggiator arp;Arpeggiator::Sequence sequence;SpinLock sequenceLock;Array<int> recordHeld,recordChord;bool wasRecording=false,wasResting=false,wasOverdubbing=false;dsp::Phaser<float> phaser;CharacterDelay echo;OrbitReverb reverb;NoteHold hold;
  VoiceAllocator voices8,voices6;EnsembleChorus chorus;dsp::Oversampling<float> drivePass{2,1,dsp::Oversampling<float>::filterHalfBandPolyphaseIIR,true,false};int driveBlock=512;SmoothedValue<float> gain;int lastMode=-1;
 };
 #include "Editor.h"

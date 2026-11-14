@@ -11,6 +11,14 @@ public:
   bool add(const int* chord,int n){if(length>=maxSteps)return false;n=juce::jlimit(0,maxNotes,n);for(int i=0;i<n;++i)notes[size_t(length)][size_t(i)]=chord[i];
    count[size_t(length)]=n;if(n>0&&!hasNotes())root=*std::min_element(chord,chord+n);++length;return true;}
   bool hasNotes() const {for(int i=0;i<length;++i)if(count[size_t(i)]>0)return true;return false;}
+  // Editing: replace a step, add one note to it, insert a rest after it, remove it. The root follows the first step.
+  void updateRoot(){for(int i=0;i<length;++i)if(count[size_t(i)]>0){root=*std::min_element(notes[size_t(i)].begin(),notes[size_t(i)].begin()+count[size_t(i)]);return;}root=60;}
+  void set(int index,const int* chord,int n){if(!juce::isPositiveAndBelow(index,length))return;n=juce::jlimit(0,maxNotes,n);for(int i=0;i<n;++i)notes[size_t(index)][size_t(i)]=chord[i];count[size_t(index)]=n;updateRoot();}
+  void merge(int index,int note){if(!juce::isPositiveAndBelow(index,length))return;auto& c=count[size_t(index)];
+   for(int i=0;i<c;++i)if(notes[size_t(index)][size_t(i)]==note)return;if(c<maxNotes){notes[size_t(index)][size_t(c++)]=note;std::sort(notes[size_t(index)].begin(),notes[size_t(index)].begin()+c);}} // the root stays: added notes do not move the transposition
+  void insertAfter(int index){if(length>=maxSteps)return;index=juce::jlimit(-1,length-1,index);for(int i=length;i>index+1;--i){notes[size_t(i)]=notes[size_t(i-1)];count[size_t(i)]=count[size_t(i-1)];}
+   count[size_t(index+1)]=0;++length;}
+  void remove(int index){if(!juce::isPositiveAndBelow(index,length))return;for(int i=index;i<length-1;++i){notes[size_t(i)]=notes[size_t(i+1)];count[size_t(i)]=count[size_t(i+1)];}--length;updateRoot();}
   // Text form kept with the patch: steps separated by ';', notes by ',', a rest is 'r'.
   juce::String toString() const {juce::StringArray steps;for(int i=0;i<length;++i){if(count[size_t(i)]==0){steps.add("r");continue;}
    juce::StringArray n;for(int k=0;k<count[size_t(i)];++k)n.add(juce::String(notes[size_t(i)][size_t(k)]));steps.add(n.joinIntoString(","));}return steps.joinIntoString(";");}
@@ -21,7 +29,7 @@ public:
  void reset(){held.fill(0);heldCount=0;remaining=gate=0;activeCount=0;step=0;wasEnabled=false;}
  // samplesToGrid: when >= 0, the number of samples from the start of this block to the next step of the host's
  // beat grid; steps then fall on the grid instead of starting with the first key.
- void process(juce::MidiBuffer& input,int samples,bool enabled,double bpm,int division,int pattern,int octaves,float gateRatio,double samplesToGrid=-1.,const Sequence* sequence=nullptr) {
+ void process(juce::MidiBuffer& input,int samples,bool enabled,double bpm,int division,int pattern,int octaves,float gateRatio,double samplesToGrid=-1.,const Sequence* sequence=nullptr,bool passNotes=false) {
   output.clear();
   if(enabled!=wasEnabled) {
    for(int ch=1;ch<=16;++ch) output.addEvent(juce::MidiMessage::allNotesOff(ch),0);
@@ -36,6 +44,7 @@ public:
   for(int sample=0;sample<samples;++sample) {
    while(it!=end && (*it).samplePosition<=sample) {
     const auto msg=(*it).getMessage();
+    if(passNotes&&msg.isNoteOnOrOff()){output.addEvent(msg,sample);++it;continue;} // overdub: the keys play through
     if(msg.isNoteOn()) {auto& velocity=held[size_t((msg.getChannel()-1)*128+msg.getNoteNumber())];if(velocity==0)++heldCount;velocity=msg.getFloatVelocity();}
     else if(msg.isNoteOff()) {auto& velocity=held[size_t((msg.getChannel()-1)*128+msg.getNoteNumber())];if(velocity>0)--heldCount;velocity=0;}
     else if(msg.isAllNotesOff()||msg.isAllSoundOff()) {for(int n=0;n<128;++n) {auto& velocity=held[size_t((msg.getChannel()-1)*128+n)];if(velocity>0)--heldCount;velocity=0;}stop(sample);remaining=0;}

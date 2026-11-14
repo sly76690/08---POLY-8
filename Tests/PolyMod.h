@@ -91,7 +91,12 @@ static bool polyModTests(){
   juce::MemoryBlock data;q->getStateInformation(data);auto xml=juce::AudioProcessor::getXmlFromBinary(data.getData(),int(data.getSize()));
   if(!require(xml&&xml->getStringAttribute("sequence")=="60;64,67;r;62","sequencer recording wrong: "+(xml?xml->getStringAttribute("sequence"):juce::String())))return false;
   std::unique_ptr<juce::AudioProcessor> r(createPluginFilter());r->setStateInformation(data.getData(),int(data.getSize()));juce::MemoryBlock again;r->getStateInformation(again);
-  auto xml2=juce::AudioProcessor::getXmlFromBinary(again.getData(),int(again.getSize()));if(!require(xml2&&xml2->getStringAttribute("sequence")=="60;64,67;r;62","sequence not restored with the session"))return false;}
+  auto xml2=juce::AudioProcessor::getXmlFromBinary(again.getData(),int(again.getSize()));if(!require(xml2&&xml2->getStringAttribute("sequence")=="60;64,67;r;62","sequence not restored with the session"))return false;
+  // OVERDUB: REC while PLAY runs adds the key to the step being played, without clearing the sequence.
+  set("seqPlay",1);for(int i=0;i<20;++i)block({});set("seqRec",1);block({juce::MidiMessage::noteOn(1,50,.8f)});block({juce::MidiMessage::noteOff(1,50)});set("seqRec",0);set("seqPlay",0);block({});
+  juce::MemoryBlock dub;q->getStateInformation(dub);auto xml3=juce::AudioProcessor::getXmlFromBinary(dub.getData(),int(dub.getSize()));
+  const auto text=xml3?xml3->getStringAttribute("sequence"):juce::String();
+  if(!require(text.contains("50")&&text.contains("64,67")&&juce::StringArray::fromTokens(text,";","").size()==4,"overdub wrong: "+text))return false;}
  // PHASER: heard when on, transparent when off.
  {const auto off=plug({{"phaserOn",0},{"cutoff",8000}}),on=plug({{"phaserOn",1},{"phaserMix",1},{"cutoff",8000}});
   if(!require(diff(off,on)>.001,"phaser inactive"))return false;for(float v:on)if(!require(std::isfinite(v)&&std::abs(v)<4.f,"phaser unstable"))return false;}
