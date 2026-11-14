@@ -47,6 +47,18 @@ public:
  Result loadUserPreset(const String& name){auto xml=PresetStorage(presetRoot()).load(name);if(!xml)return Result::fail("Preset absent, invalide ou inaccessible dans Presets/User.");MemoryBlock data;copyXmlToBinary(*xml,data);setStateInformation(data.getData(),int(data.getSize()));state.state.removeProperty("soundName",nullptr);state.state.setProperty("userPresetName",name,nullptr);modified.store(false);return Result::ok();}
  bool isPatchModified() const {return modified.load();}
  String sequenceText(){const SpinLock::ScopedLockType lock(sequenceLock);return sequence.toString();}
+ // SEQUENCE MEMORIES: eight slots kept apart from the sounds (Presets/Sequences/SEQ n.txt), so a sequence can be
+ // played with any patch. The current slot is shown on the panel; a new recording or a patch's own sequence clears it.
+ static constexpr int sequenceSlots=8;
+ static File sequenceFile(int slot){return presetRoot().getChildFile("Presets").getChildFile("Sequences").getChildFile("SEQ "+String(slot+1)+".txt");}
+ bool sequenceSlotUsed(int slot) const {return sequenceFile(slot).existsAsFile();}
+ int sequenceSlotLength(int slot) const {Arpeggiator::Sequence probe;probe.fromString(sequenceFile(slot).loadFileAsString());return probe.length;}
+ bool storeSequence(int slot){if(!isPositiveAndBelow(slot,sequenceSlots)||sequenceLength()==0)return false;const auto file=sequenceFile(slot);file.getParentDirectory().createDirectory();
+  if(!file.replaceWithText(sequenceText()))return false;currentSequenceSlot.store(slot);return true;}
+ bool loadSequence(int slot){if(!isPositiveAndBelow(slot,sequenceSlots)||!sequenceSlotUsed(slot))return false;const auto text=sequenceFile(slot).loadFileAsString();
+  {const SpinLock::ScopedLockType lock(sequenceLock);sequence.fromString(text);sequenceSteps.store(sequence.length);}currentSequenceSlot.store(slot);return true;}
+ int sequenceSlot() const {return currentSequenceSlot.load();}
+ std::atomic<int> currentSequenceSlot{-1};
  int sequenceLength() const {return sequenceSteps.load();}
  std::atomic<int> sequenceSteps{0};
   // Host pages of eight, in the order of the front panel.
@@ -285,7 +297,7 @@ public:
   // become one step. REST adds a silent step. PLAY runs the arpeggiator clock over the sequence instead of the pattern.
   const bool recording=value("seqRec")>.5f,rest=value("seqRest")>.5f,playing=value("seqPlay")>.5f&&!recording;
   {const SpinLock::ScopedLockType lock(sequenceLock);
-   if(recording&&!wasRecording){sequence.clear();recordHeld.clearQuick();recordChord.clearQuick();}
+   if(recording&&!wasRecording){sequence.clear();recordHeld.clearQuick();recordChord.clearQuick();currentSequenceSlot.store(-1);}
    if(recording){for(const auto meta:midi){const auto msg=meta.getMessage();
      if(msg.isNoteOn()){recordHeld.addIfNotAlreadyThere(msg.getNoteNumber());recordChord.addIfNotAlreadyThere(msg.getNoteNumber());}
      else if(msg.isNoteOff()){recordHeld.removeFirstMatchingValue(msg.getNoteNumber());
@@ -356,7 +368,7 @@ public:
     xml->removeChildElement(map,true);}
    auto restored=ValueTree::fromXml(*xml);
    // A patch saved with a sequence brings it back; one saved without leaves the current sequence alone.
-   if(restored.hasProperty("sequence")){const SpinLock::ScopedLockType lock(sequenceLock);sequence.fromString(restored.getProperty("sequence").toString());sequenceSteps.store(sequence.length);restored.removeProperty("sequence",nullptr);}
+   if(restored.hasProperty("sequence")){const SpinLock::ScopedLockType lock(sequenceLock);sequence.fromString(restored.getProperty("sequence").toString());sequenceSteps.store(sequence.length);currentSequenceSlot.store(-1);restored.removeProperty("sequence",nullptr);}
    // Sessions and presets saved before state version 2 stored chorus mode as 0 = I, 1 = II.
    if(int(restored.getProperty("stateVersion",1))<2){for(auto child:restored)if(child.getProperty("id").toString()=="chorusMode")child.setProperty("value",float(child.getProperty("value"))+1.f,nullptr);}
    // Before state version 3 the high-pass was a continuous cutoff in Hz; it is now a four-position switch.

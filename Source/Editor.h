@@ -706,19 +706,28 @@ private:
   compactKnob("age","AGE",cells[2]);compactKnob("voiceWidth","WIDTH",cells[3]);chipChoice("vcaMode","VCA",{"ENV","GATE","F.ENV"},cells[4].withHeight(79),true);switches.getLast()->setLever();printedToggle("hold","HOLD",cells[5].withTrimmedTop(18).expanded(6,0).withRight(area.getRight()+4));
   area=section("GLIDE",teal,{338,lowerY,180,lowerH});cells=split(area,{1,1,1,1});
   compactKnob("portamento","PORTA",cells[0]);compactKnob("bendRange","BEND",cells[1]);compactKnob("unisonSpread","SPREAD",cells[2]);printedToggle("legato","LEGATO",cells[3].withTrimmedTop(18));
-  area=section("ARPEGGIO / SEQUENCER",teal,{524,lowerY,340,lowerH});cells=split(area,{.75f,.85f,1.15f,1.f,1.f,1.f,1.f,.85f,.85f,.85f});
+  area=section("ARPEGGIO / SEQUENCER",teal,{524,lowerY,380,lowerH});cells=split(area,{.75f,.85f,1.15f,1.f,1.f,1.f,1.f,.85f,.85f,.85f,1.25f});
   printedToggle("arpOn","ON",cells[0].withTrimmedTop(18));printedToggle("arpSync","SYNC",cells[1].withTrimmedTop(18));menuChoice("arpPattern","MODE",cells[2]);
   menuChoice("arpDivision","STEP",cells[3]);menuChoice("arpOctaves","OCT",cells[4]);compactKnob("arpTempo","TEMPO",cells[5]);compactKnob("arpGate","GATE",cells[6]);
   // SEQUENCER keys: REC, then play one note or chord per step (REST for a silent step); PLAY, then hold a key to transpose.
   printedToggle("seqRec","REC",cells[7].withTrimmedTop(18));printedToggle("seqRest","REST",cells[8].withTrimmedTop(18));printedToggle("seqPlay","PLAY",cells[9].withTrimmedTop(18));
   restKey=&toggles[toggles.size()-2]->button;restKey->setClickingTogglesState(false); // REST is a momentary key
+  // MEMORY: load one of the eight stored sequences, or store the current one, from a menu.
+  caption("MEMORY",cells[10].withHeight(14),-1,11.f);
+  seqMemory.getProperties().set("liveText",true);place(seqMemory,{cells[10].getX(),cells[10].getY()+19,cells[10].getWidth(),28},-1);
+  seqMemory.onClick=[this]{PopupMenu menu;menu.addSectionHeader("LOAD");
+   for(int i=0;i<Orbit::sequenceSlots;++i){const bool used=orbit.sequenceSlotUsed(i);menu.addItem(1+i,"SEQ "+String(i+1)+(used?"   "+String(orbit.sequenceSlotLength(i))+" steps":String("   empty")),used,orbit.sequenceSlot()==i);}
+   menu.addSectionHeader("STORE THE CURRENT SEQUENCE");
+   for(int i=0;i<Orbit::sequenceSlots;++i)menu.addItem(101+i,"SEQ "+String(i+1)+(orbit.sequenceSlotUsed(i)?"   (replace)":String()),orbit.sequenceLength()>0);
+   menu.showMenuAsync(PopupMenu::Options().withTargetComponent(&seqMemory),[safe=Component::SafePointer<Editor>(this)](int result){
+    if(safe==nullptr||result<=0)return;if(result>100)safe->orbit.storeSequence(result-101);else safe->orbit.loadSequence(result-1);});};
   restKey->onStateChange=[this]{const bool down=restKey->isDown();if(down==restDown)return;restDown=down;auto* p=orbit.state.getParameter("seqRest");p->beginChangeGesture();p->setValueNotifyingHost(down?1.f:0.f);p->endChangeGesture();};
-  area=section("DELAY",teal,{870,lowerY,230,lowerH});cells=split(area,{1,1,1,1,.75f,.9f});
+  area=section("DELAY",teal,{910,lowerY,210,lowerH});cells=split(area,{1,1,1,1,.75f,.9f});
   compactKnob("delayTime","TIME",cells[0]);delayTimeKnob=&faders.getLast()->slider;
   compactKnob("delayFeedback","FDBK",cells[1]);compactKnob("delayMod","MOD",cells[2]);compactKnob("delayMix","LEVEL",cells[3]);printedToggle("delayOn","ON",cells[4].withTrimmedTop(18));
   caption({},cells[0].withTrimmedTop(63).withHeight(12),-1,9);labels.getLast()->getProperties().set("live",true);
   addSync("delaySync",6,*delayTimeKnob,cells[5].withTrimmedTop(18).withHeight(45),-1,labels.getLast());
-  area=section("REVERB",teal,{1106,lowerY,300,lowerH});cells=split(area,{2.3f,1,1,1,1,.8f});
+  area=section("REVERB",teal,{1126,lowerY,280,lowerH});cells=split(area,{2.2f,1,1,1,1,.8f});
   chipChoice("reverbType","",{"VINT","PLATE","SPACE"},cells[0].withHeight(65));compactKnob("reverbSize","SIZE",cells[1]);compactKnob("reverbDamp","DAMP",cells[2]);compactKnob("reverbColor","COLOR",cells[3]);compactKnob("reverbMix","LEVEL",cells[4]);printedToggle("reverbOn","ON",cells[5].withTrimmedTop(18));
   area=section("OUTPUT",teal,{1412,lowerY,156,lowerH});cells=split(area,{1,1});compactKnob("gain","VOLUME",cells[0]);compactKnob("masterTune","TUNE",cells[1]);
  }
@@ -901,7 +910,8 @@ private:
   String shown = line;
   const int steps = orbit.sequenceLength();
   if (orbit.state.getRawParameterValue("seqRec")->load() > .5f) shown = "SEQ REC    STEP " + String(steps + 1) + " / 64    REST = SILENCE";
-  else if (orbit.state.getRawParameterValue("seqPlay")->load() > .5f) shown = "SEQ PLAY    " + String(steps) + " STEPS    KEY = TRANSPOSE";
+  else if (orbit.state.getRawParameterValue("seqPlay")->load() > .5f) shown = (orbit.sequenceSlot() >= 0 ? "SEQ " + String(orbit.sequenceSlot() + 1) : String("SEQ PLAY")) + "    " + String(steps) + " STEPS    KEY = TRANSPOSE";
+  seqMemory.setButtonText(orbit.sequenceSlot() >= 0 ? "SEQ " + String(orbit.sequenceSlot() + 1) : String("SEQ -"));
   if (orbit.isLearning()) { const int touched = orbit.lastTouchedParameter();
    shown = touched < 0 ? String("MIDI LEARN    TOUCH A CONTROL") : "MIDI LEARN    " + orbit.getParameters()[touched]->getName(14).toUpperCase() + "  <  MOVE A CC"; }
   if (shown != displayLine) { displayLine = shown; surface.repaint(510, 22, 344, 30); }
@@ -932,7 +942,7 @@ private:
  // A clickable wave name around a SHAPE knob.
  struct ShapeStop : Component { ShapeStop(Slider& s,float v):slider(s),value(v){setMouseCursor(MouseCursor::PointingHandCursor);setRepaintsOnMouseActivity(false);}
   void mouseDown(const MouseEvent&) override {slider.setValue(value,sendNotificationSync);} Slider& slider;float value; };
- OwnedArray<ShapeStop> shapeStops;Button* restKey=nullptr;bool restDown=false;
+ OwnedArray<ShapeStop> shapeStops;Button* restKey=nullptr;bool restDown=false;TextButton seqMemory;
  std::vector<Rectangle<float>> tagRules; OwnedArray<PanelChoice> panelChoices; OwnedArray<Label> labels; OwnedArray<Fader> faders; OwnedArray<Toggle> toggles; OwnedArray<ChoiceButtons> choices; OwnedArray<WaveKnob> waveKnobs; OwnedArray<SlideSwitch> switches; OwnedArray<ChoiceMenuButton> menuButtons; Slider* delayTimeKnob = nullptr;
  struct Sync { std::unique_ptr<SyncKey> key; std::unique_ptr<SyncKnob> knob; Slider* free = nullptr; Label* value = nullptr; const char* id = ""; bool wasSynced = true; };
  OwnedArray<Sync> syncs;
