@@ -188,6 +188,8 @@ public:
   if(!slider.getProperties().contains("rangeSelector")&&!slider.getProperties().contains("shapeScale"))for(int i=0;i<=10;++i){float a=start+(end-start)*i/10.f;auto a1=centre+Point<float>(std::sin(a),-std::cos(a))*(radius+4);auto a2=centre+Point<float>(std::sin(a),-std::cos(a))*(radius+6);g.setColour(dim.withAlpha(.8f));g.drawLine({a1,a2},.8f);}
   if(slider.getProperties().contains("shapeScale")){ // continuous SHAPE: the four landmark waves printed around the knob
    const char* names[]={"TRI","SAW","SQR","PLS"};g.setFont(face(11.f));
+   for(int i=0;i<4;++i){const float t=start+(end-start)*float(i)/3.f;const Point<float> u(std::sin(t),-std::cos(t)); // a mark at each detent
+    g.setColour(std::abs(value*3.f-float(i))<.02f?ink:dim);g.drawLine({centre+u*(radius+3),centre+u*(radius+8)},1.6f);}
    for(int i=0;i<4;++i){float a=start+(end-start)*float(i)/3.f;auto p=centre+Point<float>(std::sin(a),-std::cos(a))*(radius+15);
     g.setColour(std::abs(value*3.f-float(i))<.5f?ink:dim);g.drawText(names[i],Rectangle<float>(p.x-14,p.y-6,28,12),Justification::centred);}
   }
@@ -659,13 +661,12 @@ private:
    auto& shape=addControl(i?"vco2Wave":"vco1Wave",Slider::RotaryHorizontalVerticalDrag,{osc.getX()+100,y+14,110,74},-1);
    shape.slider.getProperties().set("shapeScale",true);shape.slider.getProperties().set("faceDiameter",32.f);
    shape.slider.setRotaryParameters(MathConstants<float>::pi*1.25f,MathConstants<float>::pi*2.75f,true);
-   // Direct choice: a click on TRI, SAW, SQR or PLS puts the knob exactly on that wave; letting go of the knob near one
-   // of them (within 4 % of the travel) settles on it too, so the pure waves are easy to find again.
+   // Direct choice: a click on TRI, SAW, SQR or PLS puts the knob exactly on that wave (the knob also has a detent on each).
    const Point<float> centre(float(osc.getX()+155),float(y+51));
    for(int k=0;k<4;++k){const float a=MathConstants<float>::pi*(1.25f+1.5f*float(k)/3.f);
     const auto at=centre+Point<float>(std::sin(a),-std::cos(a))*31.f;
     auto* stop=shapeStops.add(new ShapeStop(shape.slider,float(k)/3.f));place(*stop,Rectangle<int>(roundToInt(at.x)-16,roundToInt(at.y)-9,32,18),-1);}
-   auto* knob=&shape.slider;knob->onDragEnd=[knob]{const double v=knob->getValue();for(int k=0;k<4;++k)if(std::abs(v-k/3.)<.04)knob->setValue(k/3.,sendNotificationSync);};
+
    caption("RANGE",{osc.getX()+251,y,96,14},-1,12);
    auto& range=addControl(i?"osc2Octave":"osc1Octave",Slider::RotaryHorizontalVerticalDrag,{osc.getX()+251,y+14,96,74},-1);
    range.slider.getProperties().set("rangeSelector",true);range.slider.getProperties().set("faceDiameter",32.f);

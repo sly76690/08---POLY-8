@@ -59,6 +59,10 @@ static bool polyModTests(){
   if(!require(singing>.05,"ladder does not self-oscillate at full RES"))return false;
   if(!require(damped>=0&&damped<1.e-3,"ladder keeps ringing at half RES"))return false;
   std::cout<<"  ladder self-oscillation: tail rms "<<juce::Decibels::gainToDecibels(singing)<<" dB at RES 10\n";}
+ // SHAPE detents: a value close to a pure wave lands on it, one between waves is kept.
+ {std::unique_ptr<juce::AudioProcessor> q(createPluginFilter());for(auto* b:q->getParameters())if(auto* r=dynamic_cast<juce::RangedAudioParameter*>(b))if(r->paramID=="vco1Wave"){
+   const auto& range=r->getNormalisableRange();
+   if(!require(std::abs(range.snapToLegalValue(.35f)-1.f/3.f)<1.e-6f&&std::abs(range.snapToLegalValue(.98f)-1.f)<1.e-6f&&std::abs(range.snapToLegalValue(.5f)-.5f)<1.e-6f,"SHAPE detents"))return false;}}
  std::cout<<"PASS poly 8: continuous SHAPE, VCO mixer, POLY-MOD sources and destinations\n";
  return true;
 }

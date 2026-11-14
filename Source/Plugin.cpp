@@ -91,7 +91,12 @@ public:
    // Filter A FREQ: the same number of octaves for every mark of the fader, as on the Juno (a slider voltage into an
    // exponential converter). With a power curve the top half of the travel held 1.8 to 18 kHz, where little changes.
    const bool octaves=String(id)=="cutoff";
-   const NormalisableRange<float> range=octaves?NormalisableRange<float>(lo,hi,[](float s,float e,float x){return s*std::pow(e/s,x);},[](float s,float e,float v){return std::log(v/s)/std::log(e/s);},nullptr)
+   // SHAPE: a detent on each pure wave (triangle 0, saw 1/3, square 2/3, pulse 1), 3 % of the travel wide each side,
+   // felt while turning the knob and kept in automation.
+   const bool shape=String(id)=="vco1Wave"||String(id)=="vco2Wave";
+   const NormalisableRange<float> range=shape?NormalisableRange<float>(lo,hi,[](float s,float e,float x){return s+(e-s)*x;},[](float s,float e,float v){return (v-s)/(e-s);},
+                                                [](float,float,float v){for(int k=0;k<4;++k)if(std::abs(v-float(k)/3.f)<.03f)return float(k)/3.f;return v;})
+                                       :octaves?NormalisableRange<float>(lo,hi,[](float s,float e,float x){return s*std::pow(e/s,x);},[](float s,float e,float v){return std::log(v/s)/std::log(e/s);},nullptr)
                                                :NormalisableRange<float>(lo,hi,0,skew);const bool centred=lo<0.f,whole=hi>=100.f,fine=lo>0.f&&lo<.06f;
    String unit=String(name).fromFirstOccurrenceOf("(",false,false).upToFirstOccurrenceOf(")",false,false);
    const String key(id);if(key=="arpTempo")unit="BPM";if(key=="fattack"||key=="fdecay"||key=="frelease")unit="s";if(key=="osc2Tune")unit="st";
