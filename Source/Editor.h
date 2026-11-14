@@ -659,6 +659,13 @@ private:
    auto& shape=addControl(i?"vco2Wave":"vco1Wave",Slider::RotaryHorizontalVerticalDrag,{osc.getX()+100,y+14,110,74},-1);
    shape.slider.getProperties().set("shapeScale",true);shape.slider.getProperties().set("faceDiameter",32.f);
    shape.slider.setRotaryParameters(MathConstants<float>::pi*1.25f,MathConstants<float>::pi*2.75f,true);
+   // Direct choice: a click on TRI, SAW, SQR or PLS puts the knob exactly on that wave; letting go of the knob near one
+   // of them (within 4 % of the travel) settles on it too, so the pure waves are easy to find again.
+   const Point<float> centre(float(osc.getX()+155),float(y+51));
+   for(int k=0;k<4;++k){const float a=MathConstants<float>::pi*(1.25f+1.5f*float(k)/3.f);
+    const auto at=centre+Point<float>(std::sin(a),-std::cos(a))*31.f;
+    auto* stop=shapeStops.add(new ShapeStop(shape.slider,float(k)/3.f));place(*stop,Rectangle<int>(roundToInt(at.x)-16,roundToInt(at.y)-9,32,18),-1);}
+   auto* knob=&shape.slider;knob->onDragEnd=[knob]{const double v=knob->getValue();for(int k=0;k<4;++k)if(std::abs(v-k/3.)<.04)knob->setValue(k/3.,sendNotificationSync);};
    caption("RANGE",{osc.getX()+251,y,96,14},-1,12);
    auto& range=addControl(i?"osc2Octave":"osc1Octave",Slider::RotaryHorizontalVerticalDrag,{osc.getX()+251,y+14,96,74},-1);
    range.slider.getProperties().set("rangeSelector",true);range.slider.getProperties().set("faceDiameter",32.f);
@@ -913,6 +920,10 @@ private:
  }();
  Orbit& orbit; OrbitSkin skin; OrbitLook look; Surface surface; PianoKeyboard keyboard;
  std::vector<Section> sections; std::vector<std::pair<Component*, int>> paged;
+ // A clickable wave name around a SHAPE knob.
+ struct ShapeStop : Component { ShapeStop(Slider& s,float v):slider(s),value(v){setMouseCursor(MouseCursor::PointingHandCursor);setRepaintsOnMouseActivity(false);}
+  void mouseDown(const MouseEvent&) override {slider.setValue(value,sendNotificationSync);} Slider& slider;float value; };
+ OwnedArray<ShapeStop> shapeStops;
  std::vector<Rectangle<float>> tagRules; OwnedArray<PanelChoice> panelChoices; OwnedArray<Label> labels; OwnedArray<Fader> faders; OwnedArray<Toggle> toggles; OwnedArray<ChoiceButtons> choices; OwnedArray<WaveKnob> waveKnobs; OwnedArray<SlideSwitch> switches; OwnedArray<ChoiceMenuButton> menuButtons; Slider* delayTimeKnob = nullptr;
  struct Sync { std::unique_ptr<SyncKey> key; std::unique_ptr<SyncKnob> knob; Slider* free = nullptr; Label* value = nullptr; const char* id = ""; bool wasSynced = true; };
  OwnedArray<Sync> syncs;
