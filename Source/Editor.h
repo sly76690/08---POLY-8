@@ -701,7 +701,7 @@ private:
   // EFFECTS: the chorus (mode and MIX), the PHASER after it, and the output DRIVE.
   auto fx=section("EFFECTS",teal,{1370,row2Y,198,row2H});chipChoice("chorusMode","CHORUS",{"OFF","I","II","I+II"},fx.withHeight(58));
   cells=split(fx.withTrimmedTop(62).withHeight(58),{1,1,1,1});compactKnob("chorus","CH MIX",cells[0]);
-  printedToggle("phaserOn","PHASER",cells[1].withTrimmedTop(8));compactKnob("phaserRate","RATE",cells[2]);compactKnob("phaserDepth","DEPTH",cells[3]);
+  caption("PHASER",cells[1].withHeight(14),-1,11.f);printedToggle("phaserOn","",cells[1].withTrimmedTop(16)); /* titled like its neighbours */compactKnob("phaserRate","RATE",cells[2]);compactKnob("phaserDepth","DEPTH",cells[3]);
   cells=split(fx.withTrimmedTop(124).withHeight(58),{1,1,1,1});compactKnob("phaserFeedback","FDBK",cells[1]);compactKnob("phaserMix","PH MIX",cells[2]);compactKnob("fxDrive","DRIVE",cells[3]);
  }
  void buildLowerRow(){
@@ -716,7 +716,7 @@ private:
   menuChoice("arpDivision","STEP",cells[3]);menuChoice("arpOctaves","OCT",cells[4]);compactKnob("arpTempo","TEMPO",cells[5]);compactKnob("arpGate","GATE",cells[6]);
   // SEQUENCER keys: REC, then play one note or chord per step (REST for a silent step); PLAY, then hold a key to transpose.
   // SEQUENCER: its own section, on the arpeggio clock (TEMPO, STEP, GATE, SYNC).
-  area=section("SEQUENCER",teal,{830,lowerY,250,lowerH});cells=split(area,{1,1,1,1,1,1.45f});
+  area=section("SEQUENCER",teal,{830,lowerY,250,lowerH});cells=split(area,{.95f,.95f,.95f,.95f,1.1f,1.5f}); // EDIT and MEMORY apart
   // REC works like a looper pedal: REC (red) records a new sequence; pressed again, OVD (blue): the recording ends, the
   // sequence plays and what you play joins it; pressed again, overdub ends and the sequence keeps playing.
   printedToggle("seqRec","REC",cells[0].withTrimmedTop(18));recKey=&toggles.getLast()->button;toggles.getLast()->attachment.reset();
@@ -751,7 +751,7 @@ private:
   caption({},cells[0].withTrimmedTop(63).withHeight(12),-1,9);labels.getLast()->getProperties().set("live",true);
   addSync("delaySync",6,*delayTimeKnob,cells[5].withTrimmedTop(18).withHeight(45),-1,labels.getLast());
   area=section("REVERB",teal,{1302,lowerY,266,lowerH});cells=split(area,{2.1f,1,1,1,1,.8f});
-  chipChoice("reverbType","",{"VINT","PLATE","SPACE"},cells[0].withHeight(65));compactKnob("reverbSize","SIZE",cells[1]);compactKnob("reverbDamp","DAMP",cells[2]);compactKnob("reverbColor","COLOR",cells[3]);compactKnob("reverbMix","LEVEL",cells[4]);printedToggle("reverbOn","ON",cells[5].withTrimmedTop(18));
+  chipChoice("reverbType","",{"VINT","PLATE","SPACE"},cells[0].withHeight(65));compactKnob("reverbSize","SIZE",cells[1]);compactKnob("reverbDamp","DAMP",cells[2]);compactKnob("reverbColor","TONE",cells[3]); /* TONE: COLOR ran into LEVEL */compactKnob("reverbMix","LEVEL",cells[4]);printedToggle("reverbOn","ON",cells[5].withTrimmedTop(18));
  }
  void buildKeyboard() {
   using namespace orbitui;
