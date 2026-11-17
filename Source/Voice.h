@@ -3,12 +3,48 @@
 #include <unordered_map>
 // A frozen copy of every parameter, read in place of the panel by a second sound (the sequence's own sound in LIVE).
 struct ParamLayer {
+ using Snapshot=std::array<float,512>;
  void build(AudioProcessorValueTreeState& s,const Array<AudioProcessorParameter*>& all){index.clear();int n=0;
-  for(auto* base:all)if(auto* p=dynamic_cast<RangedAudioParameter*>(base))if(auto* a=s.getRawParameterValue(p->paramID))index[a]=n++;
+  for(auto* base:all)if(auto* p=dynamic_cast<RangedAudioParameter*>(base))if(auto* a=s.getRawParameterValue(p->paramID)){jassert(n<int(Snapshot{}.size()));index[a]=n++;}
   values.reset(new std::atomic<float>[size_t(jmax(1,n))]);capture();}
- void capture(){for(const auto& [a,i]:index)values[size_t(i)].store(a->load());} // no allocation: safe on the audio thread
+ Snapshot panel() const {Snapshot result{};for(const auto& [a,i]:index)result[size_t(i)]=a->load();return result;}
+ void capture(){apply(panel());} // one writer: the audio thread after construction
+ void assign(Snapshot& data,const std::atomic<float>* a,float value) const {const auto it=index.find(a);if(it!=index.end())data[size_t(it->second)]=value;}
  float get(const std::atomic<float>* a) const {const auto it=index.find(a);return it==index.end()?a->load():values[size_t(it->second)].load();}
+ float get(const Snapshot& data,const std::atomic<float>* a) const {const auto it=index.find(a);return it==index.end()?a->load():data[size_t(it->second)];}
+ // Restore at a block boundary, never halfway through a voice. No allocation or wait on audio.
+ void queue(const Snapshot& data,bool live){const SpinLock::ScopedLockType lock(pendingLock);pending=data;pendingLive=live;hasPending=true;}
+ bool applyPending(bool& live){const SpinLock::ScopedTryLockType lock(pendingLock);if(!lock.isLocked()||!hasPending)return false;apply(pending);live=pendingLive;hasPending=false;return true;}
+ Snapshot forSave(bool& queued,bool& live) const {
+  {const SpinLock::ScopedLockType lock(pendingLock);queued=hasPending;live=pendingLive;if(queued)return pending;}
+  // A session save may overlap LIVE activation; retry on the saving thread only.
+  Snapshot result{};for(;;){const auto before=revision.load();if(before&1u)continue;
+   for(const auto& entry:index)result[size_t(entry.second)]=values[size_t(entry.second)].load();
+   if(before==revision.load())return result;}
+ }
+private:
+ void apply(const Snapshot& data){revision.fetch_add(1);for(const auto& entry:index)values[size_t(entry.second)].store(data[size_t(entry.second)]);revision.fetch_add(1);}
  std::unordered_map<const std::atomic<float>*,int> index;std::unique_ptr<std::atomic<float>[]> values;
+ std::atomic<unsigned> revision{0};mutable SpinLock pendingLock;Snapshot pending{};bool hasPending=false,pendingLive=false;
+};
+// Parameter objects and their atomics live as long as the processor. Cache their
+// addresses once; automation still reads the same atomics at the same call sites.
+// Fixed storage and literal-key hashing avoid APVTS tree/string lookups during audio.
+class ParameterReadCache {
+public:
+ explicit ParameterReadCache(AudioProcessorValueTreeState& owner):state(owner){
+  for(auto* base:state.processor.getParameters())if(auto* p=dynamic_cast<RangedAudioParameter*>(base)){
+   size_t slot=hash(p->paramID.toRawUTF8());for(size_t probe=0;probe<entries.size();++probe,slot=(slot+1)&mask)if(entries[slot].raw==nullptr){entries[slot]={p->paramID,state.getRawParameterValue(p->paramID)};break;}
+  }
+ }
+ const std::atomic<float>* get(const char* key) const {
+  size_t slot=hash(key);for(size_t probe=0;probe<entries.size();++probe,slot=(slot+1)&mask){const auto& entry=entries[slot];if(entry.raw==nullptr)break;if(entry.id==key)return entry.raw;}
+  return state.getRawParameterValue(key); // also handles a future parameter beyond the cache capacity
+ }
+private:
+ static constexpr size_t mask=255;
+ static constexpr size_t hash(const char* key){unsigned value=2166136261u;while(*key){value=(value^static_cast<unsigned char>(*key++))*16777619u;}return value&mask;}
+ struct Entry{String id;const std::atomic<float>* raw=nullptr;};std::array<Entry,mask+1> entries{};AudioProcessorValueTreeState& state;
 };
 // Envelope with curved segments, shaped like the charge and discharge of a capacitor rather than
 // straight lines. Attack bends towards a target above full level, so it rises fast then eases in and
@@ -18,8 +54,10 @@ struct ParamLayer {
 class Contour {
 public:
  struct Parameters { float attack, decay, sustain, release; };
- void setSampleRate(double sr) { sampleRate=sr; }
+ void setSampleRate(double sr) { if(sampleRate!=sr)parametersValid=false;sampleRate=sr; }
  void setParameters(const Parameters& p) {
+  if(parametersValid&&p.attack==previous.attack&&p.decay==previous.decay&&p.sustain==previous.sustain&&p.release==previous.release)return;
+  previous=p;parametersValid=true;
   sustain=p.sustain;
   attackRate=rate(p.attack/std::log(overshoot/(overshoot-1.f)));
   decayRate=rate(p.decay/curve); releaseRate=rate(p.release/curve);
@@ -41,6 +79,7 @@ private:
  enum Stage { idle, attack, decay, release };
  static constexpr float overshoot=1.3f, curve=3.5f, silence=.001f;
  float rate(float timeConstant) const { return 1.f-std::exp(-1.f/(jmax(.0001f,timeConstant)*float(sampleRate))); }
+ Parameters previous{};bool parametersValid=false;
  double sampleRate=44100; float level=0,sustain=1,attackRate=1,decayRate=1,releaseRate=1; Stage stage=idle;
 };
 
@@ -57,10 +96,13 @@ struct ModulationBus {
 // the filter, so a fast filter envelope keeps its edge.
 class FilterSlot {
 public:
- void prepare(double sr) { sampleRate=float(sr); for(auto& f:svf){f.prepare({sr,512,1});f.setType(dsp::StateVariableTPTFilterType::lowpass);} reset(); }
+ void prepare(double sr) { sampleRate=float(sr);configured=false;lastLadderCutoff=lastSvfCutoff=-1.f; for(auto& f:svf){f.prepare({sr,512,1});f.setType(dsp::StateVariableTPTFilterType::lowpass);} reset(); }
  void reset() { ladder.fill(0.f); for(auto& f:svf)f.reset(); }
  void setDrive(float amount) { drive=jmax(.2f,amount); } // how hard the ladder is pushed: more = earlier, rounder limiting
- void configure(int model,int slope,float resonance) { type=model; stages=slope; feedback=maxFeedback*jlimit(0.f,1.f,resonance/.95f); // RES fader: a gentle, even rise, matched by measurement to the reference recording (about +2.5 dB at 5, +8 dB at 10)
+ void configure(int model,int slope,float resonance) {
+  if(configured&&model==type&&slope==stages&&resonance==lastResonance)return;
+  configured=true;lastResonance=resonance;lastLadderCutoff=lastSvfCutoff=-1.f;
+  type=model; stages=slope; feedback=maxFeedback*jlimit(0.f,1.f,resonance/.95f); // RES fader: a gentle, even rise, matched by measurement to the reference recording (about +2.5 dB at 5, +8 dB at 10)
   // The last few steps of RES tip the ladder into self-oscillation, as on the Juno-106 (resonance "0 to self oscillation").
   if(const float t=jlimit(0.f,1.f,(resonance-.9f)/.05f);t>0.f)feedback+=selfOscillation*t*t*(3.f-2.f*t); for(auto& f:svf)f.setResonance(.7071f+resonance*7.f);
   // Ladder FREQ: without resonance the four poles sit an octave up (cutoffScale) so the ladder is as bright as the
@@ -70,8 +112,9 @@ public:
   ladderScale=cutoffScale*(1.f-blend)+onPeak*blend; }
  float process(float x,float cutoff) {
   if(type==0) return processLadder(x,cutoff);
-  svf[0].setCutoffFrequency(cutoff); x=svf[0].processSample(0,x);
-  if(stages){svf[1].setCutoffFrequency(cutoff); x=svf[1].processSample(0,x);}
+  if(cutoff!=lastSvfCutoff){for(auto& f:svf)f.setCutoffFrequency(cutoff);lastSvfCutoff=cutoff;}
+  x=svf[0].processSample(0,x);
+  if(stages)x=svf[1].processSample(0,x);
   return std::tanh(x);
  }
 private:
@@ -81,7 +124,10 @@ private:
  // setting (four poles are already 12 dB down at their own frequency, hence cutoffScale), a resonance that comes in
  // early and sings at the top of its range, and the same soft output stage, so a strong peak growls instead of clipping.
  float processLadder(float x,float cutoff) {
-  const float g=std::tan(MathConstants<float>::pi*jmin(cutoff*ladderScale,sampleRate*.45f)/sampleRate), G=g/(1.f+g), keep=1.f-G, G2=G*G;
+  // Exact-value cache: never quantize cutoff or skip audio-rate modulation.
+  // Usually the two oversampled substeps share a cutoff; Poly-Mod can invalidate it every sample.
+  if(cutoff!=lastLadderCutoff){const float g=std::tan(MathConstants<float>::pi*jmin(cutoff*ladderScale,sampleRate*.45f)/sampleRate);cachedG=g/(1.f+g);lastLadderCutoff=cutoff;}
+  const float G=cachedG,keep=1.f-G,G2=G*G;
   const float pending=keep*(G2*G*ladder[0]+G2*ladder[1]+G*ladder[2]+ladder[3]);
   // The signal enters at a low level so the saturation inside the loop only bites on the resonant peak (the
   // resonance builds up instead of being flattened); the lows the resonance takes away are given back at the output.
@@ -97,6 +143,7 @@ private:
   // above the rest of the sound instead of being flattened into it.
   return (1.f-selfOscillationCut*sing)*std::tanh((stages?y:tap)/inputLevel*outputLevel*(1.f+bassReturn*jmin(feedback,maxFeedback))*outputHeadroom)/outputHeadroom*.85f;
  }
+ bool configured=false;float lastResonance=-1.f,lastLadderCutoff=-1.f,lastSvfCutoff=-1.f,cachedG=0.f;
  std::array<float,4> ladder{}; std::array<dsp::StateVariableTPTFilter<float>,2> svf; float sampleRate=44100.f,feedback=.4f,drive=1.2f,ladderScale=cutoffScale; int type=0,stages=1;
  // Ladder voicing, measured against the state-variable model and to adjust by ear.
  // Octant: the last steps of RES (above 9) push the loop past self-oscillation, so the ladder sings on its own as a sine
@@ -123,9 +170,9 @@ struct HalfBand {
 };
 class Voice : public SynthesiserVoice {
 public:
- Voice(AudioProcessorValueTreeState& s,GlideMemory& previous,const ModulationBus& shared,const ParamLayer* frozen=nullptr) : state(s),previousPitch(previous),bus(shared),layer(frozen) {}
+ Voice(AudioProcessorValueTreeState& s,GlideMemory& previous,const ModulationBus& shared,const ParamLayer* frozen=nullptr) : state(s),parameterReads(s),previousPitch(previous),bus(shared),layer(frozen) {}
  bool canPlaySound(SynthesiserSound* s) override { return dynamic_cast<Sound*>(s)!=nullptr; }
- float p(const char* key) const {const auto* a=state.getRawParameterValue(key);return layer!=nullptr?layer->get(a):a->load();}
+ float p(const char* key) const {const auto* a=parameterReads.get(key);return layer!=nullptr?layer->get(a):a->load();}
  void setVoiceIndex(int index){oscillators.setVoiceIndex(index);
   // Fixed per-voice differences, balanced over the eight voices so that the instrument as a whole stays centred.
   static constexpr float cutoffs[8]={.2f,-.6f,.5f,-.9f,.75f,-.3f,.95f,-.6f},times[8]={-.4f,.7f,-.85f,.3f,.9f,-.6f,.15f,-.2f};
@@ -265,7 +312,7 @@ public:
   }
  }
 private:
- AudioProcessorValueTreeState& state;GlideMemory& previousPitch;uint64 serial=0;const ModulationBus& bus;const ParamLayer* layer=nullptr;SmoothedValue<double> pitch;Contour env,filterEnv,gate;FilterSlot a,b;HalfBand down;OscillatorBank oscillators;dsp::StateVariableTPTFilter<float> highpass;
+ AudioProcessorValueTreeState& state;ParameterReadCache parameterReads;GlideMemory& previousPitch;uint64 serial=0;const ModulationBus& bus;const ParamLayer* layer=nullptr;SmoothedValue<double> pitch;Contour env,filterEnv,gate;FilterSlot a,b;HalfBand down;OscillatorBank oscillators;dsp::StateVariableTPTFilter<float> highpass;
  float cutNow=0,cutBNow=0,lastL=0,lastR=0,tailL=0,tailR=0;bool fresh=true,pitched=false;
  double hz=440;float vel=0,wheel=0,unisonCents=0,voiceGain=1,lfoAge=0,bass=0,pan=0,dc=0;
  float pressure=0,pressureNow=0,lfoLast=0,manualLevel=0;double trigPhase=0,lfoOffset=0;bool held=false;

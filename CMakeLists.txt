@@ -1,7 +1,14 @@
 cmake_minimum_required(VERSION 3.22)
-project(Octant VERSION 0.1.0 LANGUAGES C CXX)
+if(POLICY CMP0131)
+  cmake_policy(SET CMP0131 NEW) # LINK_ONLY keeps plugin wrapper defines out of the test host
+endif()
+# Set the deployment target before compiler detection; an existing empty cache entry
+# otherwise makes the SDK version become the minimum supported macOS.
+if(NOT CMAKE_OSX_DEPLOYMENT_TARGET)
+  set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "Minimum macOS" FORCE)
+endif()
+project(Octant VERSION 0.2.0 LANGUAGES C CXX)
 set(CMAKE_CXX_STANDARD 17)
-set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "Minimum macOS")
 add_subdirectory(vendor/JUCE-8.0.6 EXCLUDE_FROM_ALL)
 # The app icon is made when CMake configures: changing the image must re-run that step.
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/Source/Assets/orbit-icon.png")
@@ -20,7 +27,7 @@ target_compile_definitions(Octant PUBLIC JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE
 target_link_libraries(Octant PRIVATE juce::juce_audio_utils juce::juce_dsp PUBLIC juce::juce_recommended_config_flags)
 juce_add_console_app(OrbitSmoke PRODUCT_NAME "Orbit Smoke Tests")
 target_sources(OrbitSmoke PRIVATE Tests/Smoke.cpp)
-target_link_libraries(OrbitSmoke PRIVATE Octant OrbitCinema juce::juce_audio_utils juce::juce_dsp)
+target_link_libraries(OrbitSmoke PRIVATE "$<LINK_ONLY:Octant>" OrbitCinema juce::juce_audio_utils juce::juce_dsp)
 target_compile_definitions(OrbitSmoke PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
 enable_testing()
 add_test(NAME audio_smoke COMMAND OrbitSmoke)

@@ -10,6 +10,7 @@ using namespace juce;
 #include "EnsembleChorus.h"
 #include "Reverbs.h"
 #include "CharacterDelay.h"
+#include "OutputDrive.h"
 #include "NoteHold.h"
 #include "ForceTouch.h"
 class Orbit;
@@ -27,7 +28,7 @@ class Orbit : public AudioProcessor, private AudioProcessorValueTreeState::Liste
  MidiKeyboardState keyboard;
  Orbit() : AudioProcessor(BusesProperties().withOutput("Stereo",AudioChannelSet::stereo(),true)), state(*this,nullptr,"OrbitState",parameters()), main(state,nullptr), sequenceSound(state,&sequenceLayer) {
   sequenceLayer.build(state,getParameters());
-  recordHeld.ensureStorageAllocated(128);recordChord.ensureStorageAllocated(128); // no allocation on the audio thread while recording
+  recordHeld.ensureStorageAllocated(2048);recordChord.ensureStorageAllocated(128); // no allocation on the audio thread while recording
   for(auto* param:getParameters()) if(auto* identified=dynamic_cast<AudioProcessorParameterWithID*>(param)) state.addParameterListener(identified->paramID,this);
   state.state.setProperty("stateVersion",5,nullptr);
   for(auto& slot:ccTarget)slot.store(-1);addListener(this);
@@ -47,7 +48,7 @@ class Orbit : public AudioProcessor, private AudioProcessorValueTreeState::Liste
  Result saveUserPreset(const String& name,bool replace=false){auto saved=state.copyState();saved.setProperty("sequence",sequenceText(),nullptr);saved.setProperty("program",currentProgram.load(),nullptr);saved.setProperty("modified",false,nullptr);saved.setProperty("userPresetName",name,nullptr);saved.removeProperty("soundName",nullptr);auto xml=saved.createXml();auto result=PresetStorage(presetRoot()).save(name,*xml,replace);if(result.wasOk()){state.state.setProperty("userPresetName",name,nullptr);state.state.removeProperty("soundName",nullptr);modified.store(false);}return result;}
  Result loadUserPreset(const String& name){auto xml=PresetStorage(presetRoot()).load(name);if(!xml)return Result::fail("Preset absent, invalide ou inaccessible dans Presets/User.");MemoryBlock data;copyXmlToBinary(*xml,data);loadingPreset.store(true);setStateInformation(data.getData(),int(data.getSize()));loadingPreset.store(false);state.state.removeProperty("soundName",nullptr);state.state.setProperty("userPresetName",name,nullptr);modified.store(false);return Result::ok();}
  bool isPatchModified() const {return modified.load();}
- String sequenceText(){const SpinLock::ScopedLockType lock(sequenceLock);return sequence.toString();}
+ String sequenceText(){return sequenceCopy().toString();}
  // SEQUENCE MEMORIES: eight slots kept apart from the sounds (Presets/Sequences/SEQ n.txt), so a sequence can be
  // played with any patch. The current slot is shown on the panel; a new recording or a patch's own sequence clears it.
  static constexpr int sequenceSlots=8;
@@ -57,7 +58,7 @@ class Orbit : public AudioProcessor, private AudioProcessorValueTreeState::Liste
  bool storeSequence(int slot){if(!isPositiveAndBelow(slot,sequenceSlots)||sequenceLength()==0)return false;const auto file=sequenceFile(slot);file.getParentDirectory().createDirectory();
   if(!file.replaceWithText(sequenceText()))return false;currentSequenceSlot.store(slot);return true;}
  bool loadSequence(int slot){if(!isPositiveAndBelow(slot,sequenceSlots)||!sequenceSlotUsed(slot))return false;const auto text=sequenceFile(slot).loadFileAsString();
-  {const SpinLock::ScopedLockType lock(sequenceLock);sequence.fromString(text);sequenceSteps.store(sequence.length);}currentSequenceSlot.store(slot);return true;}
+  Arpeggiator::Sequence loaded;loaded.fromString(text);{const SpinLock::ScopedLockType lock(sequenceLock);sequence=loaded;sequenceSteps.store(sequence.length);}currentSequenceSlot.store(slot);return true;}
  int sequenceSlot() const {return currentSequenceSlot.load();}
  int sequencePosition() const {return arp.position.load();}
  // Step editing from the panel (message thread). editStep: the selected step, -1 when the editor is closed.
@@ -271,12 +272,15 @@ class Orbit : public AudioProcessor, private AudioProcessorValueTreeState::Liste
  void changeProgramName(int,const String&) override {}
  void prepareToPlay(double sr,int block) override {
   arp.prepare(sr);hold.prepare();sampleRate=sr;main.prepare(sr,block);sequenceSound.prepare(sr,block);
-  sequenceBuffer.setSize(2,jmax(block,8192));sequenceTail=0;
+  sequenceBuffer.setSize(2,jmax(block,8192));sequenceTail=0;wasLayered=false;wasRecording=wasResting=wasOverdubbing=liveFresh=false;recordHeld.clearQuick();recordChord.clearQuick();
  }
  void releaseResources() override {main.reset();sequenceSound.reset();keyboard.reset();arp.reset();hold.reset();}
  bool isBusesLayoutSupported(const BusesLayout& b) const override {return b.getMainOutputChannelSet()==AudioChannelSet::stereo();}
  void processBlock(AudioBuffer<float>& buffer,MidiBuffer& midi) override {
-  ScopedNoDenormals noDenormals;buffer.clear();keyboard.processNextMidiBuffer(midi,0,buffer.getNumSamples(),true);
+  ScopedNoDenormals noDenormals;
+  bool restoredLive=false;
+  if(sequenceLayer.applyPending(restoredLive)){restoredSequenceLayer.store(restoredLive);sequenceLayerReady.store(restoredLive);main.reset();sequenceSound.reset();arp.reset();hold.reset();sequenceTail=0;wasLayered=false;wasRecording=wasResting=wasOverdubbing=liveFresh=false;recordHeld.clearQuick();recordChord.clearQuick();}
+  buffer.clear();keyboard.processNextMidiBuffer(midi,0,buffer.getNumSamples(),true);
   if(const int bend=screenPitch.exchange(-1);bend>=0)midi.addEvent(MidiMessage::pitchWheel(1,bend),0);
   if(const int press=screenPressure.exchange(-1);press>=0)midi.addEvent(MidiMessage::channelPressureChange(1,press),0); // trackpad force on the panel keyboard
   // MIDI learn and learned controls. The mod wheel, sustain, bank select and channel messages keep their own jobs.
@@ -303,17 +307,18 @@ class Orbit : public AudioProcessor, private AudioProcessorValueTreeState::Liste
   // PLAY runs the arpeggiator clock over the sequence instead of the pattern; a held key transposes it.
   const bool rec=value("seqRec")>.5f,rest=value("seqRest")>.5f,play=value("seqPlay")>.5f;
   const bool ovd=value("seqOvd")>.5f,recording=rec&&!play&&!ovd,overdub=ovd||(rec&&play),playing=play||ovd;
+  Arpeggiator::Sequence playingSequence;
   {const SpinLock::ScopedLockType lock(sequenceLock);
    if(recording&&!wasRecording){sequence.clear();recordHeld.clearQuick();recordChord.clearQuick();currentSequenceSlot.store(-1);}
    const int editing=editStep.load();
    // EDIT works while the sequence plays too: the keys are then heard and written, not used to transpose.
    if(recording||editing>=0){for(const auto meta:midi){const auto msg=meta.getMessage();
-     if(msg.isNoteOn()){recordHeld.addIfNotAlreadyThere(msg.getNoteNumber());recordChord.addIfNotAlreadyThere(msg.getNoteNumber());}
-     else if(msg.isNoteOff()){recordHeld.removeFirstMatchingValue(msg.getNoteNumber());
+     if(msg.isNoteOn()){recordHeld.addIfNotAlreadyThere((msg.getChannel()-1)*128+msg.getNoteNumber());recordChord.addIfNotAlreadyThere(msg.getNoteNumber());}
+     else if(msg.isNoteOff()){recordHeld.removeFirstMatchingValue((msg.getChannel()-1)*128+msg.getNoteNumber());
       if(recordHeld.isEmpty()&&!recordChord.isEmpty()){recordChord.sort();
        if(recording)sequence.add(recordChord.getRawDataPointer(),recordChord.size());
-       else{const bool lane=editLane.load();if(editAdds.load()){for(int n:recordChord)sequence.merge(editing,n,lane);}else sequence.setLane(editing,recordChord.getRawDataPointer(),recordChord.size(),lane);
-        editStep.store(jmin(editing+1,jmax(0,sequence.length-1)));}
+       else{const int selected=editStep.load();const bool lane=editLane.load();if(editAdds.load()){for(int n:recordChord)sequence.merge(selected,n,lane);}else sequence.setLane(selected,recordChord.getRawDataPointer(),recordChord.size(),lane);
+        editStep.store(jmin(selected+1,jmax(0,sequence.length-1)));}
        recordChord.clearQuick();}}}
     if(recording&&rest&&!wasResting&&recordHeld.isEmpty())sequence.add(nullptr,0);}
    else{recordHeld.clearQuick();recordChord.clearQuick();}
@@ -322,19 +327,26 @@ class Orbit : public AudioProcessor, private AudioProcessorValueTreeState::Liste
    if(overdub&&!wasOverdubbing){currentSequenceSlot.store(-1);liveFresh=sequence.length==0;if(liveFresh)for(int i=0;i<16;++i)sequence.add(nullptr,0);}
    if(!overdub&&wasOverdubbing&&liveFresh){sequence.updateRoot();liveFresh=false;}
    wasRecording=recording;wasOverdubbing=overdub;wasResting=rest;
+   playingSequence=sequence;sequenceSteps.store(sequence.length);}
    const bool live=playing&&value("seqLive")>.5f;
-   arp.process(midi,buffer.getNumSamples(),value("arpOn")>.5f||playing,bpm,division,playing?4:int(value("arpPattern")),int(value("arpOctaves"))+1,value("arpGate"),samplesToGrid,&sequence,overdub||editing>=0||live,overdub,live);
-   for(int i=0;i<arp.capturedCount;++i)sequence.merge(arp.capturedStep[size_t(i)],arp.capturedNote[size_t(i)],!liveFresh);
+   arp.process(midi,buffer.getNumSamples(),value("arpOn")>.5f||playing,bpm,division,playing?4:int(value("arpPattern")),int(value("arpOctaves"))+1,value("arpGate"),samplesToGrid,&playingSequence,overdub||editStep.load()>=0||live,overdub,live);
+   if(arp.capturedCount>0){const SpinLock::ScopedLockType lock(sequenceLock);for(int i=0;i<arp.capturedCount;++i)sequence.merge(arp.capturedStep[size_t(i)],arp.capturedNote[size_t(i)],!liveFresh);
    sequenceSteps.store(sequence.length);}
   // LIVE: the sequence plays on its own sound, frozen when LIVE (or PLAY with LIVE on) started; the keys play the panel's.
   const bool layered=playing&&value("seqLive")>.5f;
-  if(layered&&!wasLayered)sequenceLayer.capture();
+  if(layered&&!wasLayered){if(!restoredSequenceLayer.exchange(false))sequenceLayer.capture();sequenceLayerReady.store(true);}
+  if(!layered){restoredSequenceLayer.store(false);sequenceLayerReady.store(false);}
   if(!layered&&wasLayered)for(int ch=1;ch<=16;++ch)arp.sequenceOutput.addEvent(MidiMessage::allNotesOff(ch),0);
-  if(layered||wasLayered)sequenceTail=int(sampleRate*8); // the frozen sound rings on (release, echo, reverb) after LIVE ends
+  if(layered||wasLayered)sequenceTail=int(sampleRate*getTailLengthSeconds()); // the frozen sound rings on (release, echo, reverb) after LIVE ends
   wasLayered=layered;
   renderSound(main,buffer,midi);
   if(sequenceTail>0&&buffer.getNumChannels()>=2){const int n=buffer.getNumSamples();sequenceBuffer.setSize(2,n,false,false,true);sequenceBuffer.clear();
-   renderSound(sequenceSound,sequenceBuffer,arp.sequenceOutput);for(int c=0;c<2;++c)buffer.addFrom(c,0,sequenceBuffer,c,0,n);
+   renderSound(sequenceSound,sequenceBuffer,arp.sequenceOutput);
+   if(!layered){const float fadeSamples=float(sampleRate*.02);for(int i=0;i<n;++i){const float fade=jlimit(0.f,1.f,float(sequenceTail-i)/fadeSamples);for(int c=0;c<2;++c)sequenceBuffer.getWritePointer(c)[i]*=fade;}}
+   for(int c=0;c<2;++c)buffer.addFrom(c,0,sequenceBuffer,c,0,n);
+   for(int c=0;c<2;++c)for(int i=0;i<n;++i){auto& x=buffer.getWritePointer(c)[i];constexpr float knee=.98f;const float a=std::abs(x);if(a>knee)x=std::copysign(knee+(1.f-knee)*std::tanh((a-knee)/(1.f-knee)),x);}
+   // Apply the safety ceiling after summing both engines. Individual limits cannot
+   // protect the combined LIVE signal. Fade only the last 20 ms of a stopped tail.
    if(!layered)sequenceTail-=n;}
   else arp.sequenceOutput.clear();
  }
@@ -352,16 +364,8 @@ class Orbit : public AudioProcessor, private AudioProcessorValueTreeState::Liste
   if(buffer.getNumChannels()>=2){e.phaser.setRate(e.value("phaserRate"));e.phaser.setDepth(e.value("phaserDepth"));e.phaser.setFeedback(e.value("phaserFeedback"));
    e.phaser.setCentreFrequency(900.f);e.phaser.setMix(e.value("phaserOn")>.5f?e.value("phaserMix"):0.f);
    dsp::AudioBlock<float> block(buffer.getArrayOfWritePointers(),2,size_t(buffer.getNumSamples()));e.phaser.process(dsp::ProcessContextReplacing<float>(block));}
-  // Drive, then the echo.
-  // POST drive at twice the sample rate, for the same reason as the voices: its overtones are filtered out, not folded back.
-  if(const float drive=e.value("fxDrive");drive>0&&buffer.getNumChannels()>=2){
-   dsp::AudioBlock<float> block(buffer.getArrayOfWritePointers(),2,size_t(buffer.getNumSamples()));
-   for(size_t done=0;done<block.getNumSamples();done+=size_t(e.driveBlock)){ // in pieces no longer than prepared for
-    auto piece=block.getSubBlock(done,jmin(size_t(e.driveBlock),block.getNumSamples()-done));auto up=e.drivePass.processSamplesUp(piece);
-    for(size_t c=0;c<up.getNumChannels();++c){auto* samples=up.getChannelPointer(c);for(size_t i=0;i<up.getNumSamples();++i)samples[i]=std::tanh(samples[i]*(1+drive*9))/(1+drive*2);}
-    e.drivePass.processSamplesDown(piece);
-   }
-  }
+  // Keep the POST oversampler warm and ramp its controls without changing its settled curve.
+  e.outputDrive.process(buffer,e.value("fxDrive"));
   // Delay time: the TIME knob when free, otherwise a note value at the host tempo (the arpeggio TEMPO knob when there is no host).
   float delaySeconds=e.value("delayTime");
   if(const int syncStep=int(e.value("delaySync"));syncStep>0) {
@@ -383,6 +387,11 @@ class Orbit : public AudioProcessor, private AudioProcessorValueTreeState::Liste
  }
  bool hasEditor() const override {return true;} AudioProcessorEditor* createEditor() override;
  void getStateInformation(MemoryBlock& dest) override {auto saved=state.copyState();saved.setProperty("sequence",sequenceText(),nullptr);saved.setProperty("program",currentProgram.load(),nullptr);saved.setProperty("modified",modified.load(),nullptr);auto xml=saved.createXml();
+  if(state.getRawParameterValue("seqLive")->load()>.5f && (state.getRawParameterValue("seqPlay")->load()>.5f||state.getRawParameterValue("seqOvd")->load()>.5f)){
+   bool queued=false,queuedLive=false;const auto frozen=sequenceLayer.forSave(queued,queuedLive);const bool frozenReady=queued?queuedLive:sequenceLayerReady.load();
+   auto* live=xml->createNewChildElement("LiveSound");
+   for(auto* base:getParameters())if(auto* p=dynamic_cast<RangedAudioParameter*>(base)){auto* child=live->createNewChildElement("PARAM");child->setAttribute("id",p->paramID);child->setAttribute("value",frozenReady?sequenceLayer.get(frozen,state.getRawParameterValue(p->paramID)):state.getRawParameterValue(p->paramID)->load());}
+  }
   auto* map=xml->createNewChildElement("MidiMap");for(int cc=0;cc<128;++cc)if(const int index=ccTarget[size_t(cc)].load();index>=0){auto* entry=map->createNewChildElement("Map");entry->setAttribute("cc",cc);entry->setAttribute("id",parameterId(index));}
   copyXmlToBinary(*xml,dest);}
  // ---- MIDI learn: one CC per control. Learning: touch a control on the panel, then move a knob on the controller.
@@ -401,6 +410,8 @@ class Orbit : public AudioProcessor, private AudioProcessorValueTreeState::Liste
    if(auto* map=xml->getChildByName("MidiMap")){for(auto& slot:ccTarget)slot.store(-1);
     for(auto* entry:map->getChildIterator()){const int cc=entry->getIntAttribute("cc",-1);const int index=parameterIndex(entry->getStringAttribute("id"));if(isPositiveAndBelow(cc,128)&&index>=0)ccTarget[size_t(cc)].store(index);}
     xml->removeChildElement(map,true);}
+   std::unique_ptr<XmlElement> liveSound;
+   if(auto* live=xml->getChildByName("LiveSound")){if(!loadingPreset.load())liveSound=std::make_unique<XmlElement>(*live);xml->removeChildElement(live,true);}
    auto restored=ValueTree::fromXml(*xml);
    // LIVE: a sound or preset changed on stage keeps the sequencer keys as they are; while the sequence runs it also keeps
    // the sequence and its clock, so the loop goes on with the new sound.
@@ -410,7 +421,7 @@ class Orbit : public AudioProcessor, private AudioProcessorValueTreeState::Liste
      if(!child.isValid()){child=ValueTree("PARAM");child.setProperty("id",id,nullptr);restored.addChild(child,-1,nullptr);}
      child.setProperty("value",value(id),nullptr);}}
    // A patch saved with a sequence brings it back; one saved without leaves the current sequence alone.
-   if(restored.hasProperty("sequence")){const SpinLock::ScopedLockType lock(sequenceLock);sequence.fromString(restored.getProperty("sequence").toString());sequenceSteps.store(sequence.length);currentSequenceSlot.store(-1);restored.removeProperty("sequence",nullptr);}
+   if(restored.hasProperty("sequence")){Arpeggiator::Sequence loaded;loaded.fromString(restored.getProperty("sequence").toString());{const SpinLock::ScopedLockType lock(sequenceLock);sequence=loaded;sequenceSteps.store(sequence.length);currentSequenceSlot.store(-1);}restored.removeProperty("sequence",nullptr);}
    // Sessions and presets saved before state version 2 stored chorus mode as 0 = I, 1 = II.
    if(int(restored.getProperty("stateVersion",1))<2){for(auto child:restored)if(child.getProperty("id").toString()=="chorusMode")child.setProperty("value",float(child.getProperty("value"))+1.f,nullptr);}
    // Before state version 3 the high-pass was a continuous cutoff in Hz; it is now a four-position switch.
@@ -422,7 +433,13 @@ class Orbit : public AudioProcessor, private AudioProcessorValueTreeState::Liste
    currentProgram.store(jlimit(0,getNumPrograms()-1,int(restored.getProperty("program",0))));for(auto* base:getParameters())if(auto* parameter=dynamic_cast<RangedAudioParameter*>(base)) {
    bool found=false;for(auto child:restored)if(child.getProperty("id").toString()==parameter->paramID){found=true;break;}
    if(!found){ValueTree child("PARAM");child.setProperty("id",parameter->paramID,nullptr);child.setProperty("value",parameter->convertFrom0to1(parameter->getDefaultValue()),nullptr);restored.addChild(child,-1,nullptr);}
-  }state.replaceState(restored);modified.store(bool(restored.getProperty("modified",false)));}}
+  }state.replaceState(restored);
+   if(!loadingPreset.load()){
+    auto frozen=sequenceLayer.panel();
+    if(liveSound)for(auto* child:liveSound->getChildIterator())if(auto* p=state.getParameter(child->getStringAttribute("id"))){const float value=float(child->getDoubleAttribute("value"));if(std::isfinite(value)){const auto& range=p->getNormalisableRange();sequenceLayer.assign(frozen,state.getRawParameterValue(p->paramID),jlimit(range.start,range.end,value));}}
+    sequenceLayer.queue(frozen,liveSound!=nullptr);
+   }
+   modified.store(bool(restored.getProperty("modified",false)));}}
 private:
  void parameterChanged(const String&,float) override {modified.store(true);}
  void audioProcessorParameterChanged(AudioProcessor*,int,float) override {}
@@ -450,31 +467,30 @@ private:
 
  // ONE SOUND: voices, LFO, effects and output level. main plays the panel; sequenceSound plays a frozen copy of it (LIVE).
  struct Engine {
-  Engine(AudioProcessorValueTreeState& s,const ParamLayer* frozen):state(s),layer(frozen),voices8(s,true,frozen),voices6(s,true,frozen){
+  Engine(AudioProcessorValueTreeState& s,const ParamLayer* frozen):state(s),parameterReads(s),layer(frozen),voices8(s,true,frozen),voices6(s,true,frozen){
    for(int i=0;i<8;++i){auto* voice=new Voice(s,previousEight,modulation,frozen);voice->setVoiceIndex(i);voice->setVintage(true);voices8.addVoice(voice);} voices8.addSound(new Sound());voices8.setNoteStealingEnabled(true);
    for(int i=0;i<6;++i){auto* voice=new Voice(s,previousSix,modulation,frozen);voice->setVoiceIndex(i);voices6.addVoice(voice);} voices6.addSound(new Sound());voices6.setNoteStealingEnabled(true);}
-  float value(const char* key) const {const auto* a=state.getRawParameterValue(key);return layer!=nullptr?layer->get(a):a->load();}
+  float value(const char* key) const {const auto* a=parameterReads.get(key);return layer!=nullptr?layer->get(a):a->load();}
   void prepare(double sr,int block){
-   driveBlock=jmax(1,block);drivePass.reset();drivePass.initProcessing(size_t(driveBlock));
+   outputDrive.prepare(sr,block,value("fxDrive"));
    previousSix=previousEight=0;modulation.lfo.assign(size_t(jmax(block,8192)),0.f);modulation.phase.assign(modulation.lfo.size(),0.f);lfoPhase=0;
    echo.prepare(sr);reverb.prepare(sr);
    voices8.setCurrentPlaybackSampleRate(sr); for(int i=0;i<voices8.getNumVoices();++i) static_cast<Voice*>(voices8.getVoice(i))->prepare(sr);
    voices6.setCurrentPlaybackSampleRate(sr); for(int i=0;i<voices6.getNumVoices();++i) static_cast<Voice*>(voices6.getVoice(i))->prepare(sr);
    chorus.prepare(sr);phaser.prepare({sr,uint32(jmax(block,512)),2});phaser.reset();
    gain.reset(sr,0.02);gain.setCurrentAndTargetValue(value("gain"));}
-  void reset(){voices8.allNotesOff(0,false);voices6.allNotesOff(0,false);chorus.reset();echo.reset();reverb.reset();previousSix=previousEight=0;}
-  AudioProcessorValueTreeState& state;const ParamLayer* layer;
+  void reset(){voices8.allNotesOff(0,false);voices6.allNotesOff(0,false);chorus.reset();phaser.reset();outputDrive.reset(value("fxDrive"));echo.reset();reverb.reset();previousSix=previousEight=0;lfoPhase=manualCount=0;}
+  AudioProcessorValueTreeState& state;ParameterReadCache parameterReads;const ParamLayer* layer;
   GlideMemory previousSix,previousEight;ModulationBus modulation;double lfoPhase=0,manualCount=0;
   VoiceAllocator voices8,voices6;EnsembleChorus chorus;dsp::Phaser<float> phaser;CharacterDelay echo;OrbitReverb reverb;
-  dsp::Oversampling<float> drivePass{2,1,dsp::Oversampling<float>::filterHalfBandPolyphaseIIR,true,false};int driveBlock=512;SmoothedValue<float> gain;int lastMode=-1;
+  OutputDrive outputDrive;SmoothedValue<float> gain;int lastMode=-1;
  };
  public: std::atomic<int> screenPitch{-1};
  public: std::atomic<int> screenPressure{-1}; // set by the panel keyboard (Force Touch), sent as channel pressure
  private:
- struct Engine; // one sound (see below)
  std::atomic<bool> modified{false};
  std::atomic<int> currentProgram{0};
- double sampleRate=44100;Arpeggiator arp;Arpeggiator::Sequence sequence;SpinLock sequenceLock;Array<int> recordHeld,recordChord;bool wasRecording=false,wasResting=false,wasOverdubbing=false,liveFresh=false;std::atomic<bool> loadingPreset{false};NoteHold hold;
+ double sampleRate=44100;Arpeggiator arp;Arpeggiator::Sequence sequence;SpinLock sequenceLock;Array<int> recordHeld,recordChord;bool wasRecording=false,wasResting=false,wasOverdubbing=false,liveFresh=false;std::atomic<bool> loadingPreset{false},restoredSequenceLayer{false},sequenceLayerReady{false};NoteHold hold;
  ParamLayer sequenceLayer;Engine main,sequenceSound;AudioBuffer<float> sequenceBuffer;int sequenceTail=0;bool wasLayered=false;
 };
 #include "Editor.h"

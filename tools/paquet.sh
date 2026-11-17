@@ -14,10 +14,27 @@ VERSION=$(sed -n 's/^project(Octant VERSION \([0-9.]*\).*/\1/p' CMakeLists.txt)
 [ -n "$VERSION" ] || { echo "Missing project version"; exit 1; }
 OUT="build/Octant_artefacts/Release"
 PKG="$PROJECT_DIR/build/Octant-$VERSION.pkg"
-[ ! -L "$PKG" ] || { echo "Refusing output symlink"; exit 1; }
+[ ! -L "$PKG" ] && [ ! -L "$PKG.payload.json" ] || { echo "Refusing output symlink"; exit 1; }
 for item in "$OUT/AU/Octant.component" "$OUT/VST3/Octant.vst3" "$OUT/Standalone/Octant.app"; do
   [ -d "$item" ] || { echo "Missing: $item; build first."; exit 1; }
 done
+# Refuse stale or host-only builds before producing a distributable package.
+for bundle in "$OUT/AU/Octant.component" "$OUT/VST3/Octant.vst3" "$OUT/Standalone/Octant.app"; do
+  for arch in arm64 x86_64; do lipo "$bundle/Contents/MacOS/Octant" -verify_arch "$arch"; done
+  actual=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$bundle/Contents/Info.plist")
+  [ "$actual" = "$VERSION" ] || { echo "Stale bundle version: $bundle ($actual)"; exit 1; }
+done
+python3 - "$OUT" <<'PYTARGET'
+import re, subprocess, sys
+from pathlib import Path
+root = Path(sys.argv[1])
+for kind, name in (("AU", "Octant.component"), ("VST3", "Octant.vst3"), ("Standalone", "Octant.app")):
+    binary = root / kind / name / "Contents/MacOS/Octant"
+    headers = subprocess.check_output(["otool", "-l", str(binary)], text=True)
+    minimums = re.findall(r"\bminos ([0-9.]+)", headers)
+    if len(minimums) != 2 or any(tuple(map(int, value.split(".")[:2])) > (11, 0) for value in minimums):
+        raise SystemExit(f"Unexpected deployment targets in {binary}: {minimums}")
+PYTARGET
 WORK=$(mktemp -d "$PROJECT_DIR/build/pkg-stage.XXXXXX")
 trap 'rm -rf "$WORK"' EXIT
 STAGE="$WORK/root"
@@ -54,13 +71,16 @@ PYMANIFEST
 # Keep the installation at its intended destination, rather than relocating to a build copy.
 PLIST="$WORK/components.plist"
 pkgbuild --analyze --root "$STAGE" "$PLIST" >/dev/null
-index=0
-while /usr/libexec/PlistBuddy -c "Print :$index" "$PLIST" >/dev/null 2>&1; do
-  for key in BundleIsRelocatable BundleIsVersionChecked; do
-    /usr/libexec/PlistBuddy -c "Set :$index:$key false" "$PLIST" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :$index:$key bool false" "$PLIST"
-  done
-  index=$((index + 1))
-done
+python3 - "$PLIST" <<'PYCOMPONENTS'
+import plistlib, sys
+from pathlib import Path
+path = Path(sys.argv[1])
+components = plistlib.loads(path.read_bytes())
+for component in components:
+    component["BundleIsRelocatable"] = False
+    component["BundleIsVersionChecked"] = False
+path.write_bytes(plistlib.dumps(components))
+PYCOMPONENTS
 pkgbuild --root "$STAGE" --component-plist "$PLIST" --identifier com.sfinstruments.octant.pkg --version "$VERSION" --install-location / "$WORK/Octant.pkg"
 mv -f "$WORK/Octant.pkg" "$PKG"
 echo "Installeur prêt : $PKG"

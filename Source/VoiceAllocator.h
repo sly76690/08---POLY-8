@@ -3,7 +3,7 @@
 class VoiceAllocator : public Synthesiser {
 public:
  // wide: this instrument spreads its voices across the stereo field (WIDTH), each voice keeping its own place.
- explicit VoiceAllocator(AudioProcessorValueTreeState& s,bool spreadVoices=false,const ParamLayer* frozen=nullptr):state(s),wide(spreadVoices),layer(frozen){setMinimumRenderingSubdivisionSize(1,true);}
+ explicit VoiceAllocator(AudioProcessorValueTreeState& s,bool spreadVoices=false,const ParamLayer* frozen=nullptr):state(s),parameterReads(s),wide(spreadVoices),layer(frozen){setMinimumRenderingSubdivisionSize(1,true);}
  void updateMode(){int next=int(value("voiceMode"));if(next!=mode){allNotesOff(0,false);mode=next;}}
  void noteOn(int channel,int note,float velocity) override {
   if(mode==0){for(auto* base:voices)static_cast<Voice*>(base)->setUnison(0,1);Synthesiser::noteOn(channel,note,velocity);for(auto* base:voices)if(base->isPlayingChannel(channel))base->controllerMoved(1,modWheel[size_t(channel-1)]);return;}
@@ -50,7 +50,7 @@ protected:
  }
 private:
  struct Key{uint64 order=0;float velocity=0;bool down=false;};
- float value(const char* id)const{const auto* a=state.getRawParameterValue(id);return layer!=nullptr?layer->get(a):a->load();}
+ float value(const char* id)const{const auto* a=parameterReads.get(id);return layer!=nullptr?layer->get(a):a->load();}
  // Level of each voice in a unison stack of n. Detuned voices add up to about sqrt(n) times one voice,
  // so 1/sqrt(n) would only match a single voice; this exponent leaves the stack about 4 to 5 dB louder.
  // Closer to 0 = more powerful (0 = every voice at full level), -0.5 = same loudness as mono.
@@ -65,5 +65,5 @@ private:
    v->controllerMoved(1,modWheel[size_t(channel-1)]);
   }active=newest;
  }
- AudioProcessorValueTreeState& state;bool wide=false;const ParamLayer* layer=nullptr;mutable int turn=0;std::array<Key,2048> keys{};std::array<bool,16> sustain{};std::array<int,16> modWheel{};uint64 counter=0;int mode=-1,active=-1;
+ AudioProcessorValueTreeState& state;ParameterReadCache parameterReads;bool wide=false;const ParamLayer* layer=nullptr;mutable int turn=0;std::array<Key,2048> keys{};std::array<bool,16> sustain{};std::array<int,16> modWheel{};uint64 counter=0;int mode=-1,active=-1;
 };

@@ -82,8 +82,7 @@ private:
  // MORPH: 0 triangle, 1/3 saw, 2/3 square, 1 narrow pulse; crossfades between neighbours, band-limited edges.
  static float morph(double t,double dt,float m,float pwm){
   m=juce::jlimit(0.f,1.f,m);
-  const float tri=float(2./juce::MathConstants<double>::pi*std::asin(std::sin(t*juce::MathConstants<double>::twoPi)));
-  if(m<1.f/3.f){const float k=m*3.f;return (1.f-k)*tri+k*wave(t,dt,.5f,0);}
+  if(m<1.f/3.f){const float k=m*3.f;return (1.f-k)*triangle(t,dt)+k*wave(t,dt,.5f,0);}
   if(m<2.f/3.f){const float k=m*3.f-1.f;return wave(t,dt,juce::jlimit(.06f,.94f,.5f+pwm),k);}
   return wave(t,dt,juce::jlimit(.04f,.94f,.5f-.44f*(m*3.f-2.f)+pwm),1);
  }
@@ -94,10 +93,18 @@ private:
   const double saw=2*t-1-blep(t,dt),pulse=(t<width?1.:-1.)+blep(t,dt)-blep(std::fmod(t+1-width,1.),dt);
   return float(saw*(1-mix)+pulse*mix);
  }
+ // Two-point integrated BLEP (polyBLAMP): round slope discontinuities at the
+ // triangle's extrema without moving its phase or changing the oscillator clock.
+ // See Esqueda, Valimaki & Bilbao, "Rounding Corners with BLAMP", DAFx-16.
+ static float triangle(double t,double dt){
+  const double raw=t<.25?4.*t:t<.75?2.-4.*t:4.*t-4.;
+  const auto corner=[t,dt](double at){double distance=std::abs(t-at);distance=juce::jmin(distance,1.-distance);if(distance>=dt)return 0.;const double x=1.-distance/dt;return x*x*x;};
+  return float(raw+(4.*dt/3.)*(corner(.75)-corner(.25)));
+ }
  static float oscillator(int shape,double phase,double dt,float width,juce::Random& random){
   switch(shape){
    case 1:return wave(phase,dt,width,1);
-   case 2:return float(2./juce::MathConstants<double>::pi*std::asin(std::sin(phase*juce::MathConstants<double>::twoPi)));
+   case 2:return triangle(phase,dt);
    case 3:return float(std::sin(phase*juce::MathConstants<double>::twoPi));
    case 4:return wave(phase,dt,.5f,1);
    case 5:return random.nextFloat()*2-1;
