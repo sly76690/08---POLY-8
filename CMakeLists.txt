@@ -7,7 +7,7 @@ endif()
 if(NOT CMAKE_OSX_DEPLOYMENT_TARGET)
   set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "Minimum macOS" FORCE)
 endif()
-project(Octant VERSION 0.2.0 LANGUAGES C CXX)
+project(Octant VERSION 0.2.1 LANGUAGES C CXX)
 set(CMAKE_CXX_STANDARD 17)
 add_subdirectory(vendor/JUCE-8.0.6 EXCLUDE_FROM_ALL)
 # The app icon is made when CMake configures: changing the image must re-run that step.
