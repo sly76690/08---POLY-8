@@ -884,9 +884,7 @@ private:
   soundNames = orbit.soundNames(); // the sounds shipped with Orbit
   if (!soundNames.isEmpty()) {
    presets.addSeparator(); presets.addSectionHeading("SOUNDS");
-   for (int i = 0; i < soundNames.size(); ++i) if (!CinematicBank::contains(soundNames[i])) presets.addItem("SOUND / " + soundNames[i], 2000 + i);
-   presets.addSeparator(); presets.addSectionHeading("MIDNIGHT SIGNALS");
-   for (int i = 0; i < soundNames.size(); ++i) if (CinematicBank::contains(soundNames[i])) presets.addItem(soundNames[i], 2000 + i);
+   for (int i = 0; i < soundNames.size(); ++i) presets.addItem("SOUND / " + soundNames[i], 2000 + i);
   }
   userNames = orbit.userPresetNames();
   if (!userNames.isEmpty()) { presets.addSeparator(); presets.addSectionHeading("USER"); for (int i = 0; i < userNames.size(); ++i) presets.addItem("USER / " + userNames[i], 1000 + i); }
@@ -937,7 +935,7 @@ private:
   else if (const int index = userNames.indexOf(userName); index >= 0) presets.setSelectedId(1000 + index, dontSendNotification);
   else presets.setText("USER / " + userName, dontSendNotification);
   const bool eight = orbit.state.getRawParameterValue("mode")->load() > .5f;
-  const String line = (sound.isNotEmpty() ? (CinematicBank::contains(sound) ? String("MIDNIGHT SIGNALS") : String("SOUND")) : user ? String("USER") : "BANK " + String::charToString(juce_wchar('A' + program / 8)) + " / " + String(program % 8 + 1)) + (eight ? "    8 VOICES" : "    6 VOICES") + (orbit.isPatchModified() ? "    EDITED" : "");
+  const String line = (sound.isNotEmpty() ? String("SOUND") : user ? String("USER") : "BANK " + String::charToString(juce_wchar('A' + program / 8)) + " / " + String(program % 8 + 1)) + (eight ? "    8 VOICES" : "    6 VOICES") + (orbit.isPatchModified() ? "    EDITED" : "");
   midiButton.setToggleState(orbit.isLearning(), dontSendNotification);
   String shown = line;
   const int steps = orbit.sequenceLength();

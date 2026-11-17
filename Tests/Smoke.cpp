@@ -7,7 +7,6 @@ juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter();
 static juce::AudioProcessorParameter* parameterOf(juce::AudioProcessor& p,const char* id){for(auto* b:p.getParameters())if(auto* r=dynamic_cast<juce::RangedAudioParameter*>(b))if(r->paramID==id)return b;return nullptr;}
 #include "AuditRegression.h"
 #include "OscillatorArchitecture.h"
-#include "CinemaBank.h"
 #include "PolyMod.h"
 #include "LiveRegression.h"
 #include "DspRegression.h"
@@ -19,7 +18,6 @@ int main() {
  if (!liveRegressionTests()) return 107;
  if (!auditRegression()) return 100;
  if (!oscillatorArchitecture()) return 101;
- if (!cinemaBankTests()) return 102;
  if (!polyModTests()) return 106;
  // The on-panel wheel must produce the same audio as MIDI bend, and spring back to centre.
  {

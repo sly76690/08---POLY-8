@@ -35,10 +35,6 @@ python3 tools/verify-package.py build/Octant-0.2.0.pkg
 - **Presets** : un nom déjà pris est refusé, sauf remplacement demandé explicitement.
 - Tests : suite audio, interface, presets, Poly-Mod et `Tests/LiveRegression.h` (transitions LIVE / OVD, référence de transposition, sauvegarde du son figé, rappel audio et plafond de sortie).
 
-## À faire
-
-- Banque *Midnight Signals* : elle vient d'Orbit (sons DCO) — la garder ou la retirer de Octant.
-
 ## Version auditée 0.2.0
 
 - Binaires universels **Apple Silicon + Intel**, cible minimale **macOS 11**.
@@ -46,6 +42,7 @@ python3 tools/verify-package.py build/Octant-0.2.0.pkg
 - Sortie de LIVE / OVD : relâchement des notes directes, sans notes bloquées.
 - L’overdub conserve la référence de transposition au rechargement ; MERGE la recalcule.
 - Protection du niveau après addition des deux moteurs. Les queues LIVE peuvent durer jusqu’à 30 s, avec une extinction progressive à la limite.
-- Le paquet est produit dans `build/Octant-0.2.0.pkg`. Il installe les formats AU / VST3, l’application et 54 presets. La fabrication du paquet ne l’installe pas.
+- Le paquet est produit dans `build/Octant-0.2.0.pkg`. Il installe les formats AU / VST3, l’application et les 38 sons Octant. La fabrication du paquet ne l’installe pas.
 - Les binaires sont signés ad hoc ; le paquet n’est pas signé Developer ID ni notarisé.
 - Moteur : un bloc audio plus grand que prévu par le DAW est joué en morceaux (aucune allocation pendant la lecture) ; passer de 6 à 8 voix laisse les notes finir sur leur release au lieu de les couper ; le delay synchronisé joue la valeur choisie jusqu'à 4 s (`Tests/EngineFixes.h`).
+- La banque *Midnight Signals* (sons DCO d'Orbit) est retirée d'Octant : elle reste dans Orbit 106.

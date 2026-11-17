@@ -6,7 +6,6 @@
 using namespace juce;
 #include "Arpeggiator.h"
 #include "PresetStorage.h"
-#include "CinematicBank.h"
 #include "EnsembleChorus.h"
 #include "Reverbs.h"
 #include "CharacterDelay.h"
@@ -41,8 +40,8 @@ class Orbit : public AudioProcessor, private AudioProcessorValueTreeState::Liste
  // Sounds: complete presets shipped by the installer (shared library), plus any the user drops in their own Presets/Sounds.
  static File sharedRoot(){return File::getSpecialLocation(File::commonApplicationDataDirectory).getChildFile("Application Support").getChildFile("SF Instruments").getChildFile("Octant");}
  String soundName() const {return state.state.getProperty("soundName").toString();}
- StringArray soundNames() const {auto names=PresetStorage(sharedRoot(),"Sounds").names();names.mergeArray(PresetStorage(presetRoot(),"Sounds").names());names.mergeArray(CinematicBank::names());names.sort(true);return names;}
- Result loadSound(const String& name){auto xml=CinematicBank::load(name);if(!xml)xml=PresetStorage(presetRoot(),"Sounds").load(name);if(!xml)xml=PresetStorage(sharedRoot(),"Sounds").load(name);if(!xml)return Result::fail("Son absent ou invalide dans Presets/Sounds.");
+ StringArray soundNames() const {auto names=PresetStorage(sharedRoot(),"Sounds").names();names.mergeArray(PresetStorage(presetRoot(),"Sounds").names());names.sort(true);return names;}
+ Result loadSound(const String& name){auto xml=PresetStorage(presetRoot(),"Sounds").load(name);if(!xml)xml=PresetStorage(sharedRoot(),"Sounds").load(name);if(!xml)return Result::fail("Son absent ou invalide dans Presets/Sounds.");
   MemoryBlock data;copyXmlToBinary(*xml,data);loadingPreset.store(true);setStateInformation(data.getData(),int(data.getSize()));loadingPreset.store(false);state.state.removeProperty("userPresetName",nullptr);state.state.setProperty("soundName",name,nullptr);modified.store(false);return Result::ok();}
  bool userPresetExists(const String& name) const {return PresetStorage(presetRoot()).exists(name);}
  Result saveUserPreset(const String& name,bool replace=false){auto saved=state.copyState();saved.setProperty("sequence",sequenceText(),nullptr);saved.setProperty("program",currentProgram.load(),nullptr);saved.setProperty("modified",false,nullptr);saved.setProperty("userPresetName",name,nullptr);saved.removeProperty("soundName",nullptr);auto xml=saved.createXml();auto result=PresetStorage(presetRoot()).save(name,*xml,replace);if(result.wasOk()){state.state.setProperty("userPresetName",name,nullptr);state.state.removeProperty("soundName",nullptr);modified.store(false);}return result;}

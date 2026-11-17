@@ -1,6 +1,6 @@
 #!/bin/bash
 # Build the installer inside the project. Does not install or modify Library.
-# The current panel and Midnight Signals are embedded in the compiled binaries.
+# The current panel is embedded in the compiled binaries.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 PROJECT_DIR="$(pwd -P)"
@@ -45,13 +45,12 @@ ditto "$OUT/Standalone/Octant.app" "$STAGE/Applications/Octant.app"
 SOUNDS="$STAGE/Library/Application Support/SF Instruments/Octant/Presets/Sounds"
 mkdir -p "$SOUNDS"
 count=0
-for sound in Presets/Sounds/*.orbitpreset Presets/MidnightSignals/*.orbitpreset; do
+for sound in Presets/Sounds/*.orbitpreset; do
   [ -f "$sound" ] || continue
   cp "$sound" "$SOUNDS/"
   count=$((count + 1))
 done
-cp Presets/MidnightSignals/README.md "$STAGE/Library/Application Support/SF Instruments/Octant/Midnight Signals.md"
-echo "Sons inclus : $count (dont 16 Midnight Signals, également intégrés aux binaires)"
+echo "Sons inclus : $count"
 find "$STAGE" -name ".DS_Store" -delete
 xattr -cr "$STAGE"
 chmod -R u+w,go+rX "$STAGE"
