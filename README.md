@@ -31,11 +31,12 @@ python3 tools/verify-package.py build/Octant-0.2.0.pkg
 - **SEQUENCER** (section ARPEGGIO / SEQUENCER) : REC, puis une note ou un accord par pas (REST = silence), 64 pas maximum ; PLAY la lance toute seule ; une touche tenue la transpose. REC comme un looper : 1er appui REC (rouge), 2e appui OVD (bleu : la séquence joue et les notes jouées s'y ajoutent), 3e appui fin de l'overdub. Dans EDIT, les notes de l'overdub sont en bleu sur une seconde ligne. EDIT : grille des pas (clic sur un pas puis une note/accord qui le remplace ou s'y ajoute avec ADD ; REST, INSERT, DELETE, + pour ajouter un pas). La séquence est enregistrée avec le patch, et 8 mémoires (menu MEMORY : LOAD / STORE, fichiers Presets/Sequences) la gardent indépendamment des sons.
 - **LIVE (scène)** : LIVE allumé, la séquence garde le son qu'elle avait au moment où LIVE (ou PLAY) a été lancé — voix, LFO, effets et volume figés — et le clavier joue le son du panneau par-dessus : on peut changer de son (un pad, un lead) sans toucher à la boucle. LIVE éteint, tout revient au son du panneau (la queue du son figé s'éteint naturellement). Changer de son pendant que la séquence tourne garde la séquence, le tempo et les touches du séquenceur. **Enregistrement en direct quantisé** : REC puis PLAY (ou REC pendant PLAY) : boucle vierge de 16 pas, chaque note sur le pas le plus proche.
 - **EFFECTS** : chorus (OFF / I / II / I+II, CH MIX), PHASER (RATE, DEPTH, FDBK, PH MIX) et DRIVE de sortie ; le DRIVE des voix est dans MIXER.
+- **DELAY** : TIME libre jusqu'à 1,5 s, ou SYNC sur une valeur de note (1/2 à 1/16, pointées D et triolets T) jouée exactement jusqu'à 4 s (une blanche jusqu'à 30 BPM). **REVERB** : trois types. **ARPEGGIO** : UP, DOWN, UP/DOWN, RANDOM, pas de 1/4 à 1/32.
+- **Presets** : un nom déjà pris est refusé, sauf remplacement demandé explicitement.
 - Tests : suite audio, interface, presets, Poly-Mod et `Tests/LiveRegression.h` (transitions LIVE / OVD, référence de transposition, sauvegarde du son figé, rappel audio et plafond de sortie).
 
 ## À faire
 
-- Nom commercial, logo et couleur d'accent (la façade reprend encore l'icône O6 d'Orbit).
 - Banque *Midnight Signals* : elle vient d'Orbit (sons DCO) — la garder ou la retirer de Octant.
 
 ## Version auditée 0.2.0
@@ -47,3 +48,4 @@ python3 tools/verify-package.py build/Octant-0.2.0.pkg
 - Protection du niveau après addition des deux moteurs. Les queues LIVE peuvent durer jusqu’à 30 s, avec une extinction progressive à la limite.
 - Le paquet est produit dans `build/Octant-0.2.0.pkg`. Il installe les formats AU / VST3, l’application et 54 presets. La fabrication du paquet ne l’installe pas.
 - Les binaires sont signés ad hoc ; le paquet n’est pas signé Developer ID ni notarisé.
+- Moteur : un bloc audio plus grand que prévu par le DAW est joué en morceaux (aucune allocation pendant la lecture) ; passer de 6 à 8 voix laisse les notes finir sur leur release au lieu de les couper ; le delay synchronisé joue la valeur choisie jusqu'à 4 s (`Tests/EngineFixes.h`).

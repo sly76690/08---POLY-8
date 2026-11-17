@@ -11,9 +11,11 @@ static juce::AudioProcessorParameter* parameterOf(juce::AudioProcessor& p,const 
 #include "PolyMod.h"
 #include "LiveRegression.h"
 #include "DspRegression.h"
+#include "EngineFixes.h"
 int main() {
  juce::ScopedJuceInitialiser_GUI gui;
  if (!dspRegressionTests()) return 108;
+ if (!engineFixTests()) return 109;
  if (!liveRegressionTests()) return 107;
  if (!auditRegression()) return 100;
  if (!oscillatorArchitecture()) return 101;

@@ -271,12 +271,21 @@ class Orbit : public AudioProcessor, private AudioProcessorValueTreeState::Liste
  const String getProgramName(int index) override {return isPositiveAndBelow(index,getNumPrograms())?patches()[size_t(index)].name:String();}
  void changeProgramName(int,const String&) override {}
  void prepareToPlay(double sr,int block) override {
-  arp.prepare(sr);hold.prepare();sampleRate=sr;main.prepare(sr,block);sequenceSound.prepare(sr,block);
-  sequenceBuffer.setSize(2,jmax(block,8192));sequenceTail=0;wasLayered=false;wasRecording=wasResting=wasOverdubbing=liveFresh=false;recordHeld.clearQuick();recordChord.clearQuick();
+  blockCapacity=jmax(block,8192);chunkMidi.ensureSize(8192);
+  arp.prepare(sr);hold.prepare();sampleRate=sr;main.prepare(sr,blockCapacity);sequenceSound.prepare(sr,blockCapacity);
+  sequenceBuffer.setSize(2,blockCapacity);sequenceTail=0;wasLayered=false;wasRecording=wasResting=wasOverdubbing=liveFresh=false;recordHeld.clearQuick();recordChord.clearQuick();
  }
  void releaseResources() override {main.reset();sequenceSound.reset();keyboard.reset();arp.reset();hold.reset();}
  bool isBusesLayoutSupported(const BusesLayout& b) const override {return b.getMainOutputChannelSet()==AudioChannelSet::stereo();}
+ // A block larger than prepared is played in pieces of the prepared size: nothing is ever allocated while playing.
  void processBlock(AudioBuffer<float>& buffer,MidiBuffer& midi) override {
+  const int total=buffer.getNumSamples();if(total<=blockCapacity){processPiece(buffer,midi);return;}
+  for(int done=0;done<total;done+=blockCapacity){const int count=jmin(blockCapacity,total-done);
+   AudioBuffer<float> piece(buffer.getArrayOfWritePointers(),buffer.getNumChannels(),done,count);
+   chunkMidi.clear();chunkMidi.addEvents(midi,done,count,-done);processPiece(piece,chunkMidi);}
+  midi.clear();
+ }
+ void processPiece(AudioBuffer<float>& buffer,MidiBuffer& midi){
   ScopedNoDenormals noDenormals;
   bool restoredLive=false;
   if(sequenceLayer.applyPending(restoredLive)){restoredSequenceLayer.store(restoredLive);sequenceLayerReady.store(restoredLive);main.reset();sequenceSound.reset();arp.reset();hold.reset();sequenceTail=0;wasLayered=false;wasRecording=wasResting=wasOverdubbing=liveFresh=false;recordHeld.clearQuick();recordChord.clearQuick();}
@@ -354,11 +363,14 @@ class Orbit : public AudioProcessor, private AudioProcessorValueTreeState::Liste
  void renderSound(Engine& e,AudioBuffer<float>& buffer,MidiBuffer& midi){
   int mode=e.value("mode")>0.5f?1:0;
   e.voices8.updateMode();e.voices6.updateMode();
-  if(mode!=e.lastMode) {e.voices8.allNotesOff(0,false);e.voices6.allNotesOff(0,false);e.lastMode=mode;}
+  // 6 <-> 8 VOICES: the notes of the engine left behind end with their own release while the other engine takes over.
+  if(mode!=e.lastMode) {if(e.lastMode>=0)(e.lastMode==0?e.voices6:e.voices8).allNotesOff(0,true);e.lastMode=mode;}
   double lfoBpm=e.value("arpTempo");std::optional<double> lfoBeats;
   if(auto* playHead=getPlayHead()) if(auto position=playHead->getPosition()){if(auto hostBpm=position->getBpm())lfoBpm=*hostBpm;if(position->getIsPlaying())if(auto beats=position->getPpqPosition())lfoBeats=*beats;}
   renderLfo(e,buffer.getNumSamples(),lfoBpm,lfoBeats);
   (mode==0?e.voices6:e.voices8).renderNextBlock(buffer,midi,0,buffer.getNumSamples());
+  {auto& other=mode==0?e.voices8:e.voices6;bool ringing=false;for(int i=0;i<other.getNumVoices()&&!ringing;++i)ringing=other.getVoice(i)->isVoiceActive();
+   if(ringing){e.silence.clear();other.renderNextBlock(buffer,e.silence,0,buffer.getNumSamples());}}
   e.chorus.process(buffer,int(e.value("chorusMode")),e.value("chorus"));
   // PHASER: always running, its mix brought to zero (smoothly) when it is off, so switching it never clicks.
   if(buffer.getNumChannels()>=2){e.phaser.setRate(e.value("phaserRate"));e.phaser.setDepth(e.value("phaserDepth"));e.phaser.setFeedback(e.value("phaserFeedback"));
@@ -373,7 +385,7 @@ class Orbit : public AudioProcessor, private AudioProcessorValueTreeState::Liste
    if(auto* playHead=getPlayHead()) if(auto position=playHead->getPosition()) if(auto hostBpm=position->getBpm()) tempo=*hostBpm;
    static const double beats[]={0,2.,1.5,1.,2./3.,.75,.5,1./3.,.375,.25,1./6.}; // D = dotted, T = triplet
    double seconds=beats[jlimit(1,10,syncStep)]*60./jmax(20.,tempo);
-   while(seconds>1.5)seconds*=.5; // longer than the delay line: fall back to half the value
+   while(seconds>4.)seconds*=.5; // only beyond the 4 s line (a half note under 30 BPM) does it fall back to half the value
    delaySeconds=float(seconds);
   }
   // ON keys: off fades the effect out (as its LEVEL at zero would) and leaves every setting where it is.
@@ -448,8 +460,8 @@ private:
  std::array<std::atomic<int>,128> ccTarget;std::atomic<bool> learning{false};std::atomic<int> lastTouched{-1};
  // The single LFO shared by all voices: free-running, one value per sample of the current block.
  void renderLfo(Engine& e,int count,double bpm,std::optional<double> beats) {
-  if(int(e.modulation.lfo.size())<count){e.modulation.lfo.resize(size_t(count));}
-  if(e.modulation.phase.size()<e.modulation.lfo.size())e.modulation.phase.resize(e.modulation.lfo.size());
+  // Sized once in prepare: processBlock never hands over more than blockCapacity samples, so nothing is resized here.
+  jassert(count<=int(e.modulation.lfo.size()));count=jmin(count,int(e.modulation.lfo.size()));
   const int shape=int(e.value("lfoShape"));double step=e.value("rate")/sampleRate;
   // LFO SYNC: one cycle lasts a note value at the host tempo (the arpeggio TEMPO without a host); while the host plays,
   // the cycle is also lined up with its bars.
@@ -477,13 +489,13 @@ private:
    echo.prepare(sr);reverb.prepare(sr);
    voices8.setCurrentPlaybackSampleRate(sr); for(int i=0;i<voices8.getNumVoices();++i) static_cast<Voice*>(voices8.getVoice(i))->prepare(sr);
    voices6.setCurrentPlaybackSampleRate(sr); for(int i=0;i<voices6.getNumVoices();++i) static_cast<Voice*>(voices6.getVoice(i))->prepare(sr);
-   chorus.prepare(sr);phaser.prepare({sr,uint32(jmax(block,512)),2});phaser.reset();
+   chorus.prepare(sr);phaser.prepare({sr,uint32(jmax(block,512)),2});silence.ensureSize(64);phaser.reset();
    gain.reset(sr,0.02);gain.setCurrentAndTargetValue(value("gain"));}
   void reset(){voices8.allNotesOff(0,false);voices6.allNotesOff(0,false);chorus.reset();phaser.reset();outputDrive.reset(value("fxDrive"));echo.reset();reverb.reset();previousSix=previousEight=0;lfoPhase=manualCount=0;}
   AudioProcessorValueTreeState& state;ParameterReadCache parameterReads;const ParamLayer* layer;
   GlideMemory previousSix,previousEight;ModulationBus modulation;double lfoPhase=0,manualCount=0;
   VoiceAllocator voices8,voices6;EnsembleChorus chorus;dsp::Phaser<float> phaser;CharacterDelay echo;OrbitReverb reverb;
-  OutputDrive outputDrive;SmoothedValue<float> gain;int lastMode=-1;
+  OutputDrive outputDrive;SmoothedValue<float> gain;int lastMode=-1;MidiBuffer silence;
  };
  public: std::atomic<int> screenPitch{-1};
  public: std::atomic<int> screenPressure{-1}; // set by the panel keyboard (Force Touch), sent as channel pressure
@@ -491,6 +503,7 @@ private:
  std::atomic<bool> modified{false};
  std::atomic<int> currentProgram{0};
  double sampleRate=44100;Arpeggiator arp;Arpeggiator::Sequence sequence;SpinLock sequenceLock;Array<int> recordHeld,recordChord;bool wasRecording=false,wasResting=false,wasOverdubbing=false,liveFresh=false;std::atomic<bool> loadingPreset{false},restoredSequenceLayer{false},sequenceLayerReady{false};NoteHold hold;
+ int blockCapacity=8192;MidiBuffer chunkMidi;
  ParamLayer sequenceLayer;Engine main,sequenceSound;AudioBuffer<float> sequenceBuffer;int sequenceTail=0;bool wasLayered=false;
 };
 #include "Editor.h"
